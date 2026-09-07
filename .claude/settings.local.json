@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx tsc *)",
+      "Bash(echo \"EXIT=$?\")",
+      "Bash(cp \"C:/Users/domin/AppData/Local/Temp/claude/E--Tourist-map/12fc8d25-069c-4c28-8db2-ec9c95869b2b/scratchpad/sqlcheck.js\" ./__sqlcheck.js)",
+      "Bash(node __sqlcheck.js)",
+      "Bash(rm -f ./__sqlcheck.js)",
+      "Bash(npm run *)"
+    ]
+  }
+}
