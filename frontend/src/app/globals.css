@@ -1,0 +1,54 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  --font-display: "Playfair Display", Georgia, "Times New Roman", serif;
+}
+
+:root {
+  --bg: #ffffff;
+  --fg: #0f172a;
+  --muted: #64748b;
+  --border: #e2e8f0;
+  --card: #ffffff;
+  --accent: #059669;
+  --accent-fg: #ffffff;
+  /* Figma brand tokens */
+  --brand: #1d4ed8;
+  --brand-dark: #1e40af;
+  --navy: #0a1628;
+  --navy-soft: #101f38;
+}
+
+html,
+body {
+  background-color: var(--bg);
+  color: var(--fg);
+  font-family:
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    Roboto,
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.font-display {
+  font-family: var(--font-display);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* Mapbox container — keep canvas full size of its parent. */
+.mapboxgl-canvas-container,
+.mapboxgl-canvas {
+  outline: none;
+}
+
+.mapboxgl-ctrl-attrib {
+  font-size: 10px;
+}

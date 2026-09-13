@@ -33,10 +33,20 @@
 
 ## 2. Folder structure
 
+The repo is split into two deployable apps sharing one `docker-compose.yml`:
+
 ```
-src/
-├─ main.ts
-├─ app.module.ts
+frontend/                       # Next.js 16 app (deploy: Vercel, root dir = frontend/)
+├─ src/app/                     # routes: public, member, studio, BFF proxy, session
+├─ src/components/              # ui, layout, destination, map, itinerary
+├─ src/lib/                     # env, api client/services, auth, query keys
+├─ public/  next.config.ts  postcss.config.mjs  eslint.config.mjs
+└─ .env.local                   # NEXT_PUBLIC_API_URL, NEXT_PUBLIC_MAPBOX_TOKEN
+
+backend/                        # NestJS 10 API (deploy: Render, root dir = backend/)
+├─ src/
+│  ├─ main.ts
+│  ├─ app.module.ts
 ├─ config/                       # env schema, app config
 │   ├─ configuration.ts
 │   └─ env.validation.ts
@@ -70,10 +80,15 @@ src/
 │   └─ reports/                  # dashboard, audit log
 └─ jobs/                         # cron / queue handlers (optional)
 
-prisma/
-├─ schema.prisma
-├─ migrations/
-└─ seed.ts
+│  prisma/
+│  ├─ prisma.module.ts
+│  └─ prisma.service.ts
+│
+├─ prisma/                      # schema, migrations, seed
+├─ test/                        # e2e runner + suite
+├─ scripts/                     # ops helpers (image fetcher)
+├─ nest-cli.json  Dockerfile  .dockerignore  .eslintrc.js
+└─ .env                         # DATABASE_URL, JWT_*, MAPBOX_*, SMTP_*
 ```
 
 ## 3. Authentication & Authorization
