@@ -3,6 +3,9 @@
 import * as React from "react";
 import mapboxgl from "mapbox-gl";
 import { MAP_DEFAULTS, MAP_STYLE, NEXT_PUBLIC_MAPBOX_TOKEN } from "@/lib/env";
+import { ensureMapboxTelemetryGuard } from "@/components/map/map-view";
+
+ensureMapboxTelemetryGuard();
 
 /**
  * Static Mapbox preview that fits the hero card. No clustering, no interactions

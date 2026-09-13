@@ -29,6 +29,44 @@ interface MapViewProps {
 
 const MapCtx = React.createContext<mapboxgl.Map | null>(null);
 
+/**
+ * mapbox-gl 3.x ships a bug in its usage-telemetry bookkeeping: when one of
+ * its stats POSTs fails (ad-blocker on events.mapbox.com, offline, flaky
+ * network) after the map was already removed — or before its internal error
+ * callback was assigned — the async callback throws
+ * `TypeError: this.errorCb is not a function`. It is harmless (the map keeps
+ * working; only the stats ping failed) but it surfaces as a fatal dev
+ * overlay and an uncaught exception in prod. All maps are created through
+ * this module (and hero-map-preview), so install the narrow guard here:
+ * swallow exactly that signature, nothing else.
+ */
+let telemetryGuardInstalled = false;
+
+export function ensureMapboxTelemetryGuard() {
+  if (telemetryGuardInstalled || typeof window === "undefined") return;
+  telemetryGuardInstalled = true;
+  const isTelemetryBug = (message: unknown, stack?: string) =>
+    typeof message === "string" &&
+    message.includes("this.errorCb is not a function") &&
+    (stack === undefined || stack.includes("mapbox-gl"));
+  // The throw happens inside a promise .catch handler, so it surfaces as an
+  // unhandled rejection (and in some browsers as a window error too).
+  window.addEventListener("unhandledrejection", (event) => {
+    const reason = (event as PromiseRejectionEvent).reason;
+    const message = reason instanceof Error ? reason.message : String(reason);
+    if (isTelemetryBug(message, reason instanceof Error ? reason.stack : undefined)) {
+      event.preventDefault();
+    }
+  });
+  window.addEventListener("error", (event) => {
+    if (isTelemetryBug(event.message, (event.error as Error | undefined)?.stack)) {
+      event.preventDefault();
+    }
+  });
+}
+
+ensureMapboxTelemetryGuard();
+
 export function MapView({
   className,
   onReady,
