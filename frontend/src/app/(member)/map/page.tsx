@@ -11,6 +11,8 @@ import { MapLayers, type MarkerRating } from "@/components/map/map-layers";
 import { RouteLines } from "@/components/map/route-lines";
 import { HeatmapLayer } from "@/components/map/heatmap-layer";
 import { MapTopbar, type MapMode } from "@/components/map/interactive/map-topbar";
+import { SearchPin } from "@/components/map/search-pin";
+import { searchPlaces, type PlaceResult } from "@/lib/mapbox-geocode";
 import {
   LeftPanel,
   type AudienceOpt,
@@ -133,7 +135,6 @@ function audienceMatch(t: { paxCount: number; targetAgeGroups: AgeGroup[] }, a: 
       return t.paxCount >= 15;
   }
 }
-
 function durationMatch(days: number, d: DurationOpt): boolean {
   switch (d) {
     case "all":
@@ -145,6 +146,11 @@ function durationMatch(days: number, d: DurationOpt): boolean {
     case "package":
       return days >= 4;
   }
+}
+
+/** Module-level navigation (kept out of the component for the hooks lint). */
+function goToTours(q: string) {
+  window.location.href = `/tours${q.trim() ? `?q=${encodeURIComponent(q.trim())}` : ""}`;
 }
 
 /**
@@ -186,6 +192,7 @@ export default function MapPage() {
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
   const [stopIds, setStopIds] = React.useState<string[]>([]);
   const [userPosition, setUserPosition] = React.useState<{ lng: number; lat: number } | null>(null);
+  const [searchPin, setSearchPin] = React.useState<PlaceResult | null>(null);
   const [dirOpen, setDirOpen] = React.useState(false);
   const [dirFrom, setDirFrom] = React.useState<DirPoint | null>(null);
   const [dirTo, setDirTo] = React.useState<DirPoint | null>(null);
@@ -423,14 +430,49 @@ export default function MapPage() {
 
   const submitSearch = () => {
     if (mode === "training") {
-      window.location.href = `/tours${q.trim() ? `?q=${encodeURIComponent(q.trim())}` : ""}`;
+      goToTours(q);
       return;
     }
     const first = visible[0];
-    if (!first) return;
-    setSelectedId(first.id);
-    mapRef.current?.flyTo({ center: [first.lng, first.lat], zoom: 11, duration: 1200 });
+    if (first) {
+      setSearchPin(null);
+      setSelectedId(first.id);
+      mapRef.current?.flyTo({ center: [first.lng, first.lat], zoom: 11, duration: 1200 });
+      return;
+    }
+    // No curated marker matches — fall back to the external place result
+    // (OSM/Mapbox), e.g. streets and POIs missing from our database.
+    const ext = placeResults[0];
+    if (ext) pickPlace(ext);
   };
+
+  /** External place search (DB + OSM + Mapbox) for real-world addresses. */
+  const placeSearch = useQuery({
+    queryKey: ["map", "place-search", deferredQ.trim().toLowerCase()],
+    queryFn: () => searchPlaces(deferredQ.trim()),
+    enabled: mode === "public" && deferredQ.trim().length >= 2,
+    staleTime: 60_000,
+  });
+  const placeResults = placeSearch.data ?? [];
+
+  const pickPlace = React.useCallback(
+    (p: PlaceResult) => {
+      // VietJourney hits open the full destination modal instead of a pin.
+      if (p.id.startsWith("vj-")) {
+        const destId = p.id.slice(3);
+        if (markers.some((m) => m.id === destId)) {
+          setSearchPin(null);
+          setSelectedId(destId);
+          const m = markers.find((m) => m.id === destId);
+          if (m) mapRef.current?.flyTo({ center: [m.lng, m.lat], zoom: 11, duration: 1200 });
+          return;
+        }
+      }
+      setSelectedId(null);
+      setSearchPin(p);
+    },
+    [markers],
+  );
 
   const handleMapReady = (map: mapboxgl.Map) => {
     mapRef.current = map;
@@ -456,6 +498,7 @@ export default function MapPage() {
     <div className="relative h-dvh overflow-hidden bg-slate-100">
       <MapView className="absolute inset-0" center={CENTER} zoom={ZOOM} onReady={handleMapReady}>
         <ClickMarker onDirections={openDirections} />
+        <SearchPin place={searchPin} onDirections={openDirections} onClose={() => setSearchPin(null)} />
         <DirectionsLine
           route={
             routeQuery.data?.coordinates?.length
@@ -490,6 +533,9 @@ export default function MapPage() {
         unread={unread}
         mode={mode}
         onMode={setMode}
+        searchResults={mode === "public" ? placeResults : []}
+        searching={placeSearch.isFetching}
+        onPickPlace={pickPlace}
       />
 
       {filtersOpen ? (

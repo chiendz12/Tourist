@@ -14,6 +14,7 @@ import {
   SlidersHorizontal,
 } from "lucide-react";
 import { useSession } from "@/lib/auth/session";
+import type { PlaceResult } from "@/lib/mapbox-geocode";
 import { classNames } from "@/lib/utils";
 import { buttonClass } from "@/components/ui/button";
 
@@ -28,6 +29,10 @@ interface MapTopbarProps {
   unread: number;
   mode: MapMode;
   onMode: (mode: MapMode) => void;
+  /** External place suggestions (DB + OSM + Mapbox) for the search box. */
+  searchResults?: PlaceResult[];
+  searching?: boolean;
+  onPickPlace?: (place: PlaceResult) => void;
 }
 
 /**
@@ -43,9 +48,27 @@ export function MapTopbar({
   unread,
   mode,
   onMode,
+  searchResults = [],
+  searching = false,
+  onPickPlace,
 }: MapTopbarProps) {
   const { user } = useSession();
   const [menu, setMenu] = React.useState(false);
+  const [searchOpen, setSearchOpen] = React.useState(false);
+  const searchBoxRef = React.useRef<HTMLDivElement | null>(null);
+
+  React.useEffect(() => {
+    if (!searchOpen) return;
+    const close = (e: MouseEvent) => {
+      if (searchBoxRef.current && !searchBoxRef.current.contains(e.target as Node)) {
+        setSearchOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [searchOpen]);
+
+  const showSuggestions = searchOpen && q.trim().length >= 2;
 
   const logout = async () => {
     setMenu(false);
@@ -73,17 +96,23 @@ export function MapTopbar({
         </span>
       </Link>
 
+      <div ref={searchBoxRef} className="pointer-events-auto relative min-w-0 max-w-xl flex-1">
       <form
         onSubmit={(e) => {
           e.preventDefault();
+          setSearchOpen(false);
           onSubmitSearch();
         }}
-        className="pointer-events-auto flex min-w-0 max-w-xl flex-1 items-center gap-2 rounded-xl bg-white/95 py-2 pl-3 pr-2 shadow-lg ring-1 ring-slate-900/5 backdrop-blur"
+        className="flex min-w-0 flex-1 items-center gap-2 rounded-xl bg-white/95 py-2 pl-3 pr-2 shadow-lg ring-1 ring-slate-900/5 backdrop-blur"
       >
         <Search className="size-4 shrink-0 text-slate-400" />
         <input
           value={q}
-          onChange={(e) => onQChange(e.target.value)}
+          onChange={(e) => {
+            onQChange(e.target.value);
+            setSearchOpen(true);
+          }}
+          onFocus={() => setSearchOpen(true)}
           placeholder={
             mode === "public"
               ? "Tìm điểm đến, tuyến đường, tour..."
@@ -93,6 +122,37 @@ export function MapTopbar({
         />
         <Mic className="size-4 shrink-0 text-slate-400" />
       </form>
+      {showSuggestions ? (
+        <div className="absolute inset-x-0 top-full z-30 mt-1.5 max-h-72 overflow-y-auto rounded-xl bg-white py-1 shadow-xl ring-1 ring-slate-900/10">
+          {searching ? (
+            <p className="px-4 py-3 text-[13px] text-slate-400">Đang tìm địa điểm…</p>
+          ) : searchResults.length === 0 ? (
+            <p className="px-4 py-3 text-[13px] text-slate-400">Không tìm thấy địa điểm nào.</p>
+          ) : (
+            searchResults.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => {
+                  setSearchOpen(false);
+                  onPickPlace?.(p);
+                }}
+                className="flex w-full items-center gap-2.5 px-3.5 py-2 text-left hover:bg-slate-50"
+              >
+                <Search className="size-3.5 shrink-0 text-slate-300" />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[13px] font-bold text-slate-800">{p.name}</span>
+                  <span className="block truncate text-xs text-slate-400">{p.address}</span>
+                </span>
+                <span className="shrink-0 rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold text-slate-500">
+                  {p.source === "VietJourney" ? "VJ" : p.source === "OpenStreetMap" ? "OSM" : "Map"}
+                </span>
+              </button>
+            ))
+          )}
+        </div>
+      ) : null}
+      </div>
 
       <button
         type="button"
