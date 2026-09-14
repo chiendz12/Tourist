@@ -290,7 +290,9 @@ function PointPicker({
               className="block w-full truncate px-3 py-2 text-left text-[13px] hover:bg-slate-50"
             >
               <span className="block truncate font-bold text-slate-800">{d.name}</span>
-              {d.address ? <span className="block truncate text-xs text-slate-400">{d.address}</span> : null}
+              <span className="block truncate text-xs tabular-nums text-slate-400">
+                {d.address || `${d.lat.toFixed(5)}, ${d.lng.toFixed(5)}`}
+              </span>
             </button>
           ))}
           {!userPosition && matches.length === 0 ? (

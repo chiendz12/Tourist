@@ -123,7 +123,7 @@ export function MapTopbar({
         <Mic className="size-4 shrink-0 text-slate-400" />
       </form>
       {showSuggestions ? (
-        <div className="absolute inset-x-0 top-full z-30 mt-1.5 max-h-72 overflow-y-auto rounded-xl bg-white py-1 shadow-xl ring-1 ring-slate-900/10">
+        <div className="absolute inset-x-0 top-full z-30 mt-1.5 max-h-96 overflow-y-auto rounded-xl bg-white py-1 shadow-xl ring-1 ring-slate-900/10">
           {searching ? (
             <p className="px-4 py-3 text-[13px] text-slate-400">Đang tìm địa điểm…</p>
           ) : searchResults.length === 0 ? (
@@ -142,7 +142,9 @@ export function MapTopbar({
                 <Search className="size-3.5 shrink-0 text-slate-300" />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-[13px] font-bold text-slate-800">{p.name}</span>
-                  <span className="block truncate text-xs text-slate-400">{p.address}</span>
+                  <span className="block truncate text-xs tabular-nums text-slate-400">
+                    {p.address || `${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}`}
+                  </span>
                 </span>
                 <span className="shrink-0 rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold text-slate-500">
                   {p.source === "VietJourney" ? "VJ" : p.source === "OpenStreetMap" ? "OSM" : "Map"}

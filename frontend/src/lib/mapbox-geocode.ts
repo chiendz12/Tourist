@@ -78,17 +78,41 @@ async function searchOsm(query: string): Promise<PlaceResult[]> {
       display_name?: string;
       lat?: string;
       lon?: string;
+      address?: {
+        road?: string;
+        suburb?: string;
+        neighbourhood?: string;
+        city?: string;
+        town?: string;
+        village?: string;
+        county?: string;
+        state?: string;
+        country?: string;
+      };
     }>;
     return (Array.isArray(body) ? body : [])
       .filter((f) => f.lat != null && f.lon != null)
-      .map((f) => ({
-        id: `osm-${f.place_id}`,
-        name: f.name || (f.display_name ?? "").split(",")[0] || query.trim(),
-        address: f.display_name ?? "",
-        lng: Number(f.lon),
-        lat: Number(f.lat),
-        source: "OpenStreetMap" as const,
-      }))
+      .map((f) => {
+        // display_name is occasionally absent — compose from parts instead
+        // of leaving the suggestion row address-less.
+        const a = f.address;
+        const composed = [
+          a?.road,
+          a?.suburb ?? a?.neighbourhood,
+          a?.city ?? a?.town ?? a?.village ?? a?.county,
+          a?.state,
+          a?.country,
+        ].filter((x): x is string => !!x?.trim());
+        const address = f.display_name || composed.join(", ");
+        return {
+          id: `osm-${f.place_id}`,
+          name: f.name || (f.display_name ?? "").split(",")[0] || composed[0] || query.trim(),
+          address,
+          lng: Number(f.lon),
+          lat: Number(f.lat),
+          source: "OpenStreetMap" as const,
+        };
+      })
       .filter((f) => Number.isFinite(f.lng) && Number.isFinite(f.lat));
   } catch {
     return [];
