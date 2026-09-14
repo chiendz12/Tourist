@@ -13,6 +13,7 @@ import { HeatmapLayer } from "@/components/map/heatmap-layer";
 import { MapTopbar, type MapMode } from "@/components/map/interactive/map-topbar";
 import { SearchPin } from "@/components/map/search-pin";
 import { searchPlaces, type PlaceResult } from "@/lib/mapbox-geocode";
+import { useToast } from "@/components/ui/toast";
 import {
   LeftPanel,
   type AudienceOpt,
@@ -160,6 +161,7 @@ function goToTours(q: string) {
 export default function MapPage() {
   const { user } = useSession();
   const queryClient = useQueryClient();
+  const { toast } = useToast();
   const mapRef = React.useRef<mapboxgl.Map | null>(null);
 
   const [q, setQ] = React.useState("");
@@ -416,17 +418,31 @@ export default function MapPage() {
       goToTours(q);
       return;
     }
-    const first = visible[0];
-    if (first) {
+    const needle = q.trim().toLowerCase();
+    if (!needle) return;
+    // Only trust backend markers when they actually came back for this
+    // query — otherwise `visible[0]` is an unrelated demo fallback (e.g.
+    // Đà Nẵng) while the user asked for Hà Nội. Require a text match.
+    const local =
+      (bbox.data?.length ?? 0) > 0
+        ? visible.find((m) => `${m.name} ${m.address ?? ""}`.toLowerCase().includes(needle))
+        : undefined;
+    if (local) {
       setSearchPin(null);
-      setSelectedId(first.id);
-      mapRef.current?.flyTo({ center: [first.lng, first.lat], zoom: 11, duration: 1200 });
+      setSelectedId(local.id);
+      mapRef.current?.flyTo({ center: [local.lng, local.lat], zoom: 11, duration: 1200 });
       return;
     }
     // No curated marker matches — fall back to the external place result
     // (OSM/Mapbox), e.g. streets and POIs missing from our database.
     const ext = placeResults[0];
-    if (ext) pickPlace(ext);
+    if (ext) {
+      pickPlace(ext);
+      return;
+    }
+    if (!placeSearch.isFetching) {
+      toast({ title: "Không tìm thấy địa điểm nào", variant: "error" });
+    }
   };
 
   /** External place search (DB + OSM + Mapbox) for real-world addresses. */
