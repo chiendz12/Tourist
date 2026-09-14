@@ -5,6 +5,7 @@ import { ArrowLeftRight, Loader2, LocateFixed, Navigation, Search, X } from "luc
 import { mapboxApi } from "@/lib/api/services";
 import type { Destination } from "@/lib/api/types";
 import { NEXT_PUBLIC_MAPBOX_TOKEN } from "@/lib/env";
+import { searchPlaces, type PlaceResult } from "@/lib/mapbox-geocode";
 import { classNames } from "@/lib/utils";
 
 export interface DirPoint {
@@ -202,7 +203,12 @@ function PointPicker({
 }) {
   const [q, setQ] = React.useState("");
   const [open, setOpen] = React.useState(false);
+  const [ext, setExt] = React.useState<PlaceResult[]>([]);
+  const [pending, setPending] = React.useState(false);
+  const seqRef = React.useRef(0);
   const boxRef = React.useRef<HTMLDivElement | null>(null);
+
+  const needle = q.trim();
 
   React.useEffect(() => {
     if (!open) return;
@@ -213,11 +219,57 @@ function PointPicker({
     return () => document.removeEventListener("mousedown", close);
   }, [open ]);
 
-  const needle = q.trim().toLowerCase();
+  // Debounced external search (DB + OSM + Mapbox fan-out): the curated
+  // `candidates` alone miss real-world places like "Học viện Tài chính".
+  // State only changes inside async callbacks, never synchronously here.
+  React.useEffect(() => {
+    if (needle.length < 2) return;
+    const seq = ++seqRef.current;
+    const timer = window.setTimeout(async () => {
+      try {
+        const r = await searchPlaces(needle);
+        if (seqRef.current === seq) setExt(r);
+      } catch {
+        /* keep previous results */
+      } finally {
+        if (seqRef.current === seq) setPending(false);
+      }
+    }, 350);
+    return () => window.clearTimeout(timer);
+  }, [needle]);
+
+  const searching = pending && needle.length >= 2;
+  const lowered = needle.toLowerCase();
+  const local = React.useMemo(() => {
+    if (!lowered) return candidates.slice(0, 6);
+    return candidates.filter((d) => `${d.name} ${d.address ?? ""}`.toLowerCase().includes(lowered)).slice(0, 6);
+  }, [candidates, lowered]);
+
+  // Local curated hits first, then external results not duplicating them.
   const matches = React.useMemo(() => {
-    if (!needle) return candidates.slice(0, 6);
-    return candidates.filter((d) => `${d.name} ${d.address ?? ""}`.toLowerCase().includes(needle)).slice(0, 6);
-  }, [candidates, needle]);
+    const seen = new Set(
+      local.map((d) => `${d.name.toLowerCase()}|${d.lng.toFixed(3)},${d.lat.toFixed(3)}`),
+    );    const out: Array<{ key: string; label: string; sub: string; point: DirPoint }> = local.map((d) => ({
+      key: d.id,
+      label: d.name,
+      sub: d.address || `${d.lat.toFixed(5)}, ${d.lng.toFixed(5)}`,
+      point: { lng: d.lng, lat: d.lat, label: d.name },
+    }));
+    const external = needle.length >= 2 ? ext : [];
+    for (const p of external) {
+      const key = `${p.name.toLowerCase()}|${p.lng.toFixed(3)},${p.lat.toFixed(3)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({
+        key: p.id,
+        label: p.name,
+        sub: p.address || `${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}`,
+        point: { lng: p.lng, lat: p.lat, label: p.name },
+      });
+      if (out.length >= 10) break;
+    }
+    return out;
+  }, [local, ext, needle]);
 
   const dot = accent === "green" ? "bg-emerald-500" : "bg-rose-500";
 
@@ -240,6 +292,7 @@ function PointPicker({
             onChange={(e) => {
               setQ(e.target.value);
               setOpen(true);
+              setPending(e.target.value.trim().length >= 2);
             }}
             onFocus={() => setOpen(true)}
             placeholder={placeholder}
@@ -278,24 +331,24 @@ function PointPicker({
               Vị trí của tôi
             </button>
           ) : null}
-          {matches.map((d) => (
+          {matches.map((m) => (
             <button
-              key={d.id}
+              key={m.key}
               type="button"
               onClick={() => {
-                onChange({ lng: d.lng, lat: d.lat, label: d.name });
+                onChange(m.point);
                 setOpen(false);
                 setQ("");
               }}
               className="block w-full truncate px-3 py-2 text-left text-[13px] hover:bg-slate-50"
             >
-              <span className="block truncate font-bold text-slate-800">{d.name}</span>
-              <span className="block truncate text-xs tabular-nums text-slate-400">
-                {d.address || `${d.lat.toFixed(5)}, ${d.lng.toFixed(5)}`}
-              </span>
+              <span className="block truncate font-bold text-slate-800">{m.label}</span>
+              <span className="block truncate text-xs tabular-nums text-slate-400">{m.sub}</span>
             </button>
           ))}
-          {!userPosition && matches.length === 0 ? (
+          {searching ? (
+            <p className="px-3 py-2 text-xs text-slate-400">Đang tìm địa điểm…</p>
+          ) : !userPosition && matches.length === 0 ? (
             <p className="px-3 py-2.5 text-xs text-slate-400">Không có địa điểm khớp.</p>
           ) : null}
         </div>
