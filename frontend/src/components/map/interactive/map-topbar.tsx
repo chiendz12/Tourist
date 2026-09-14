@@ -14,11 +14,24 @@ import {
   SlidersHorizontal,
 } from "lucide-react";
 import { useSession } from "@/lib/auth/session";
-import type { PlaceResult } from "@/lib/mapbox-geocode";
+import { hasCloseMatch, type PlaceResult } from "@/lib/mapbox-geocode";
 import { classNames } from "@/lib/utils";
 import { buttonClass } from "@/components/ui/button";
 
 export type MapMode = "public" | "training";
+
+/**
+ * Guidance shown when no suggestion closely matches the query (long
+ * decorated phrases often need district/province detail to resolve).
+ */
+function SearchHint() {
+  return (
+    <p className="border-t border-slate-100 px-4 py-2.5 text-xs leading-relaxed text-slate-400">
+      Không thấy đúng địa điểm? Thử thêm <strong className="text-slate-500">quận/huyện, tỉnh</strong> — ví dụ
+      “Văn Phú, Hà Đông”.
+    </p>
+  );
+}
 
 interface MapTopbarProps {
   q: string;
@@ -127,30 +140,36 @@ export function MapTopbar({
           {searching ? (
             <p className="px-4 py-3 text-[13px] text-slate-400">Đang tìm địa điểm…</p>
           ) : searchResults.length === 0 ? (
-            <p className="px-4 py-3 text-[13px] text-slate-400">Không tìm thấy địa điểm nào.</p>
+            <>
+              <p className="px-4 py-3 text-[13px] text-slate-400">Không tìm thấy địa điểm nào.</p>
+              <SearchHint />
+            </>
           ) : (
-            searchResults.map((p) => (
-              <button
-                key={p.id}
-                type="button"
-                onClick={() => {
-                  setSearchOpen(false);
-                  onPickPlace?.(p);
-                }}
-                className="flex w-full items-center gap-2.5 px-3.5 py-2 text-left hover:bg-slate-50"
-              >
-                <Search className="size-3.5 shrink-0 text-slate-300" />
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[13px] font-bold text-slate-800">{p.name}</span>
-                  <span className="block truncate text-xs tabular-nums text-slate-400">
-                    {p.address || `${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}`}
+            <>
+              {searchResults.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => {
+                    setSearchOpen(false);
+                    onPickPlace?.(p);
+                  }}
+                  className="flex w-full items-center gap-2.5 px-3.5 py-2 text-left hover:bg-slate-50"
+                >
+                  <Search className="size-3.5 shrink-0 text-slate-300" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[13px] font-bold text-slate-800">{p.name}</span>
+                    <span className="block truncate text-xs tabular-nums text-slate-400">
+                      {p.address || `${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}`}
+                    </span>
                   </span>
-                </span>
-                <span className="shrink-0 rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold text-slate-500">
-                  {p.source === "VietJourney" ? "VJ" : p.source === "OpenStreetMap" ? "OSM" : "Map"}
-                </span>
-              </button>
-            ))
+                  <span className="shrink-0 rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold text-slate-500">
+                    {p.source === "VietJourney" ? "VJ" : p.source === "OpenStreetMap" ? "OSM" : "Map"}
+                  </span>
+                </button>
+              ))}
+              {!hasCloseMatch(searchResults, q) ? <SearchHint /> : null}
+            </>
           )}
         </div>
       ) : null}

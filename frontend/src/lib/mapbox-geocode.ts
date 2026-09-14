@@ -38,12 +38,12 @@ export interface PlaceResult {
   source: "VietJourney" | "OpenStreetMap" | "Mapbox";
 }
 
-async function searchMapbox(query: string): Promise<PlaceResult[]> {
+async function searchMapbox(query: string, limit = 6): Promise<PlaceResult[]> {
   if (!NEXT_PUBLIC_MAPBOX_TOKEN) return [];
   try {
     const res = await fetch(
       `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query.trim())}.json` +
-        `?access_token=${encodeURIComponent(NEXT_PUBLIC_MAPBOX_TOKEN)}&language=vi&limit=6&country=vn&bbox=102,8,110,24`,
+        `?access_token=${encodeURIComponent(NEXT_PUBLIC_MAPBOX_TOKEN)}&language=vi&limit=${limit}&country=vn&bbox=102,8,110,24`,
     );
     if (!res.ok) return [];
     const body = (await res.json()) as {
@@ -140,24 +140,92 @@ async function searchLocal(query: string): Promise<PlaceResult[]> {
  * Combined place search for data entry: our own database first (exact
  * curated places), then OpenStreetMap (real POIs Mapbox lacks, e.g. Chùa
  * Bái Đính), then Mapbox (streets/addresses). Results carry provenance.
+ *
+ * Vietnamese queries fan out into variants (unaccented + generic-prefix
+ * stripped, e.g. "khu đô thị văn phú" → "van phu" / "văn phú") because
+ * neither provider reliably matches long decorated phrases on the raw
+ * text alone. Everything merges with provenance-aware dedupe, cap 10.
  */
 export async function searchPlaces(query: string): Promise<PlaceResult[]> {
   if (query.trim().length < 2) return [];
-  const [local, osm, mapbox] = await Promise.all([
-    searchLocal(query),
-    searchOsm(query),
-    searchMapbox(query),
-  ]);
+  const variants = queryVariants(query.trim());
+  const jobs: Array<Promise<PlaceResult[]>> = [searchLocal(query.trim())];
+  for (const v of variants.osm) jobs.push(searchOsm(v));
+  jobs.push(searchMapbox(query.trim(), 8));
+  if (variants.stripped) jobs.push(searchMapbox(variants.stripped, 6));
+  const settled = await Promise.all(jobs);
   const seen = new Set<string>();
   const out: PlaceResult[] = [];
-  for (const r of [...local, ...osm, ...mapbox]) {
+  // Local hits first, then everything else in provider order.
+  for (const r of settled.flat()) {
     const key = `${r.name.toLowerCase()}|${r.lng.toFixed(3)},${r.lat.toFixed(3)}`;
     if (seen.has(key)) continue;
     seen.add(key);
     out.push(r);
-    if (out.length >= 8) break;
+    if (out.length >= 10) break;
   }
   return out;
+}
+
+/** Single-word Vietnamese generics ignored when judging a close match. */
+const GENERIC_WORDS = new Set([
+  "khu", "do", "đô", "thi", "thị", "phuong", "phường", "xa", "xã",
+  "tinh", "tỉnh", "quan", "quận", "huyen", "huyện", "thanh", "thành",
+  "pho", "phố", "duong", "đường", "dai", "đại", "lo", "lộ", "ho", "hồ",
+  "song", "sông", "nui", "núi", "chua", "chùa", "den", "đền", "dinh", "đình",
+  "cau", "cầu", "cho", "chợ", "cong", "công", "vien", "viên", "truong", "trường",
+  "cua", "của", "va", "và",
+]);
+
+/** Leading place-type phrases ("khu đô thị", "phường", "đường", …). */
+const GENERIC_PREFIX =
+  /^(khu\s+đô\s+thị|khu\s+dân\s+cư|khu\s+công\s+nghiệp|thị\s+trấn|thành\s+phố|đại\s+lộ|công\s+viên|bảo\s+tàng|bãi\s+biển|khu|phường|phuong|xã|xa|tỉnh|tinh|quận|quan|huyện|huyen|đường|duong|phố|pho|hồ|ho|sông|song|núi|nui|chùa|chua|đền|den|đình|cầu|cau|chợ|cho|trường|sông)\s+/i;
+
+export function stripAccents(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/đ/g, "d")
+    .replace(/Đ/g, "D");
+}
+
+function stripGenericPrefix(value: string): string {
+  return value.replace(GENERIC_PREFIX, "").trim();
+}
+
+function queryVariants(query: string): { osm: string[]; stripped: string | null } {
+  const unaccented = stripAccents(query);
+  const stripped = stripGenericPrefix(query);
+  const strippedUnaccented = stripAccents(stripped);
+  const osm = [query];
+  if (unaccented !== query) osm.push(unaccented);
+  if (stripped.length >= 2 && stripped !== query && stripped !== unaccented) osm.push(stripped);
+  if (
+    strippedUnaccented.length >= 2 &&
+    strippedUnaccented !== query &&
+    strippedUnaccented !== unaccented &&
+    strippedUnaccented !== stripped
+  ) {
+    osm.push(strippedUnaccented);
+  }
+  return { osm, stripped: stripped.length >= 2 && stripped !== query ? stripped : null };
+}
+
+/**
+ * True when some result's name covers every significant query word —
+ * used to decide whether to suggest adding district/province detail.
+ */
+export function hasCloseMatch(results: PlaceResult[], query: string): boolean {
+  const words = query
+    .toLowerCase()
+    .split(/\s+/)
+    .map((w) => w.trim())
+    .filter((w) => w.length > 1 && !GENERIC_WORDS.has(w) && !GENERIC_WORDS.has(stripAccents(w)));
+  if (words.length === 0) return true;
+  return results.some((r) => {
+    const hay = `${r.name} ${r.address}`.toLowerCase();
+    return words.every((w) => hay.includes(w) || hay.includes(stripAccents(w)));
+  });
 }
 
 function contextText(ctx: ReverseContext[] | undefined, ...prefixes: string[]): string | undefined {
