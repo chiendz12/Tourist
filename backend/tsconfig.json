@@ -23,5 +23,7 @@
     "isolatedModules": true
   },
   "include": ["src/**/*", "prisma/**/*.ts"],
-  "exclude": ["node_modules", "dist"]
+  // Spec files need jest types (dev-only). They must never ship to prod and
+  // must not break production builds where devDependencies are omitted.
+  "exclude": ["node_modules", "dist", "src/**/*.spec.ts", "test"]
 }
