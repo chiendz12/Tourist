@@ -141,18 +141,22 @@ async function searchLocal(query: string): Promise<PlaceResult[]> {
  * curated places), then OpenStreetMap (real POIs Mapbox lacks, e.g. Chùa
  * Bái Đính), then Mapbox (streets/addresses). Results carry provenance.
  *
- * Vietnamese queries fan out into variants (unaccented + generic-prefix
- * stripped, e.g. "khu đô thị văn phú" → "van phu" / "văn phú") because
- * neither provider reliably matches long decorated phrases on the raw
- * text alone. Everything merges with provenance-aware dedupe, cap 10.
+ * Nominatim allows ~1 req/s and answers 429 to parallel bursts, so it gets
+ * exactly ONE call per search (raw query). Variant fan-out (unaccented +
+ * generic-prefix stripped, e.g. "đường lạc long quân" → "lạc long quân")
+ * runs on Mapbox only, which tolerates parallelism. Everything merges with
+ * provenance-aware dedupe, cap 10.
  */
 export async function searchPlaces(query: string): Promise<PlaceResult[]> {
   if (query.trim().length < 2) return [];
-  const variants = queryVariants(query.trim());
-  const jobs: Array<Promise<PlaceResult[]>> = [searchLocal(query.trim())];
-  for (const v of variants.osm) jobs.push(searchOsm(v));
-  jobs.push(searchMapbox(query.trim(), 8));
-  if (variants.stripped) jobs.push(searchMapbox(variants.stripped, 6));
+  const raw = query.trim();
+  const stripped = stripGenericPrefix(raw);
+  const jobs: Array<Promise<PlaceResult[]>> = [
+    searchLocal(raw),
+    searchOsm(raw),
+    searchMapbox(raw, 8),
+  ];
+  if (stripped.length >= 2 && stripped !== raw) jobs.push(searchMapbox(stripped, 6));
   const settled = await Promise.all(jobs);
   const seen = new Set<string>();
   const out: PlaceResult[] = [];
@@ -191,24 +195,6 @@ export function stripAccents(value: string): string {
 
 function stripGenericPrefix(value: string): string {
   return value.replace(GENERIC_PREFIX, "").trim();
-}
-
-function queryVariants(query: string): { osm: string[]; stripped: string | null } {
-  const unaccented = stripAccents(query);
-  const stripped = stripGenericPrefix(query);
-  const strippedUnaccented = stripAccents(stripped);
-  const osm = [query];
-  if (unaccented !== query) osm.push(unaccented);
-  if (stripped.length >= 2 && stripped !== query && stripped !== unaccented) osm.push(stripped);
-  if (
-    strippedUnaccented.length >= 2 &&
-    strippedUnaccented !== query &&
-    strippedUnaccented !== unaccented &&
-    strippedUnaccented !== stripped
-  ) {
-    osm.push(strippedUnaccented);
-  }
-  return { osm, stripped: stripped.length >= 2 && stripped !== query ? stripped : null };
 }
 
 /**
