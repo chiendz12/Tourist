@@ -206,10 +206,6 @@ export default function MapPage() {
         ]),
       ),
   );
-  // First markers load wins: auto-select the lead marker and, in fallback
-  // demo mode, prefill the tray. Render-phase adjustment (guarded) so no
-  // effect setState is needed.
-  const [seenMarkers, setSeenMarkers] = React.useState<Destination[] | null>(null);
 
   React.useEffect(() => {
     window.localStorage.setItem("vj-map-mode", mode);
@@ -371,19 +367,6 @@ export default function MapPage() {
       note: note.length ? `Lọc tour: ${note.join(" · ")}` : null,
     };
   }, [tours.data, duration, audience]);
-
-  if (seenMarkers !== markers && !bbox.isPending) {
-    setSeenMarkers(markers);
-    if (markers.length > 0) {
-      // Auto-open the detail modal only for real records. Demo markers
-      // have no backend detail to load, so they stay selectable by click.
-      if (bbox.data?.length) {
-        setSelectedId((prev) => prev ?? markers[0].id);
-      } else {
-        setStopIds((prev) => (prev.length ? prev : markers.slice(0, 4).map((m) => m.id)));
-      }
-    }
-  }
 
   const favIds = React.useMemo(
     () => new Set((favorites.data ?? []).map((f) => f.destinationId)),
