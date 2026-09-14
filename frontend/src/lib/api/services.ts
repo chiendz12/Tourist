@@ -70,6 +70,12 @@ export const geoApi = {
       public: true,
       revalidate: 300,
     }),
+  /** OpenStreetMap search proxied via our backend (browser OSM calls get blocked/throttled). */
+  search: (q: string) =>
+    json<Array<{ id: string; name: string; address: string; lng: number; lat: number }>>(
+      "/mapbox/search",
+      { query: { q }, public: true, revalidate: 300 },
+    ),
 };
 
 /** Road routing through our backend (server-side Mapbox token). */

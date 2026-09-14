@@ -23,14 +23,49 @@ export type RouteGeometry = {
   source: 'MAPBOX' | 'STRAIGHT_LINE';
 };
 
+/** Compose "road, suburb, city, state, country" when display_name is absent. */
+function composeOsmAddress(address?: Record<string, string | undefined>): string {
+  return [
+    address?.road,
+    address?.suburb ?? address?.neighbourhood,
+    address?.city ?? address?.town ?? address?.village ?? address?.county,
+    address?.state,
+    address?.country,
+  ].filter((part): part is string => !!part?.trim()).join(', ');
+}
+
 /** Mapbox Directions accepts at most 25 coordinates per request. */
 const MAX_WAYPOINTS = 25;
 /** The traffic-aware profile is limited to 3 waypoints; longer routes use `driving`. */
 const TRAFFIC_PROFILE_MAX_WAYPOINTS = 3;
 
+/** Nominatim (OpenStreetMap) usage policy: max 1 req/s, valid User-Agent. */
+const NOMINATIM_URL = 'https://nominatim.openstreetmap.org/search';
+const NOMINATIM_MIN_INTERVAL_MS = 1100;
+const NOMINATIM_CACHE_TTL_MS = 60 * 60 * 1000;
+
+export interface OsmPlaceHit {
+  id: string;
+  name: string;
+  address: string;
+  lng: number;
+  lat: number;
+}
+
+interface NominatimRow {
+  place_id: number;
+  name?: string;
+  display_name?: string;
+  lat?: string;
+  lon?: string;
+  address?: Record<string, string | undefined>;
+}
+
 @Injectable()
 export class MapboxService {
   private readonly logger = new Logger(MapboxService.name);
+  private nominatimLastCall = 0;
+  private readonly nominatimCache = new Map<string, { at: number; hits: OsmPlaceHit[] }>();
 
   constructor(private readonly config: ConfigService) {}
 
@@ -53,6 +88,55 @@ export class MapboxService {
         .send()
         .then((res: MapboxResponse) => res.body),
     );
+  }
+
+  /**
+   * OpenStreetMap forward search, proxied so browsers don't have to call
+   * Nominatim directly (referer blocks, 429s). Server-side we serialize
+   * calls to respect the 1 req/s policy, identify with a User-Agent, and
+   * cache per query for an hour. Never throws — callers fall back.
+   */
+  async searchPlaces(query: string): Promise<OsmPlaceHit[]> {
+    if (query.length < 2) return [];
+    const key = query.toLowerCase();
+    const cached = this.nominatimCache.get(key);
+    if (cached && Date.now() - cached.at < NOMINATIM_CACHE_TTL_MS) return cached.hits;
+    try {
+      const wait = NOMINATIM_MIN_INTERVAL_MS - (Date.now() - this.nominatimLastCall);
+      if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
+      const url =
+        `${NOMINATIM_URL}?q=${encodeURIComponent(query)}` +
+        `&countrycodes=vn&format=jsonv2&addressdetails=1&limit=8&accept-language=vi`;
+      const res = await fetch(url, {
+        headers: {
+          Accept: 'application/json',
+          'User-Agent': 'VietJourney/1.0 (https://tourist-roan.vercel.app; contact admin@touristmap.local)',
+          Referer: 'https://tourist-roan.vercel.app/',
+        },
+      });
+      this.nominatimLastCall = Date.now();
+      if (!res.ok) return cached?.hits ?? [];
+      const rows = (await res.json()) as NominatimRow[];
+      const hits = (Array.isArray(rows) ? rows : [])
+        .filter((row) => row.lat != null && row.lon != null)
+        .map((row) => {
+          const address = row.display_name || composeOsmAddress(row.address);
+          return {
+            id: `osm-${row.place_id}`,
+            name:
+              row.name || (row.display_name ?? '').split(',')[0] || address.split(',')[0] || query,
+            address,
+            lng: Number(row.lon),
+            lat: Number(row.lat),
+          };
+        })
+        .filter((hit) => Number.isFinite(hit.lng) && Number.isFinite(hit.lat));
+      this.nominatimCache.set(key, { at: Date.now(), hits });
+      return hits;
+    } catch (error) {
+      this.logger.warn(`Nominatim search failed: ${(error as Error).message}`);
+      return cached?.hits ?? [];
+    }
   }
 
   directions(coordinates: [number, number][]) {

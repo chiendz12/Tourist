@@ -34,6 +34,16 @@ export class MapboxController {
     return this.mapboxService.reverseGeocode(Number(lng), Number(lat));
   }
 
+  /**
+   * OpenStreetMap place search proxied server-side: browsers get blocked or
+   * throttled calling Nominatim directly (missing UA, 1 req/s policy), so
+   * the frontend uses this instead of fetch-to-OSM.
+   */
+  @Get('search')
+  search(@Query('q') query: string) {
+    return this.mapboxService.searchPlaces(query?.trim() ?? '');
+  }
+
   @Get('static-map')
   staticMap(@Query('lng') lng: number, @Query('lat') lat: number) {
     return { url: this.mapboxService.staticMapUrl(Number(lng), Number(lat)) };

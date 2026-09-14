@@ -65,6 +65,30 @@ async function searchMapbox(query: string, limit = 6): Promise<PlaceResult[]> {
 }
 
 async function searchOsm(query: string): Promise<PlaceResult[]> {
+  // Backend proxy first: it identifies with a proper User-Agent, serializes
+  // to Nominatim's 1 req/s policy and caches. Direct browser calls get
+  // blocked or 429-throttled, which previously wiped out all OSM hits.
+  try {
+    const { geoApi } = await import("@/lib/api/services");
+    const hits = await geoApi.search(query.trim());
+    const mapped = (Array.isArray(hits) ? hits : [])
+      .filter((h) => Number.isFinite(h.lng) && Number.isFinite(h.lat))
+      .map((h) => ({
+        id: h.id.startsWith("osm-") ? h.id : `osm-${h.id}`,
+        name: h.name || query.trim(),
+        address: h.address || "",
+        lng: Number(h.lng),
+        lat: Number(h.lat),
+        source: "OpenStreetMap" as const,
+      }));
+    if (mapped.length) return mapped;
+  } catch {
+    /* fall through to direct call */
+  }
+  return searchOsmDirect(query);
+}
+
+async function searchOsmDirect(query: string): Promise<PlaceResult[]> {
   try {
     const res = await fetch(
       `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query.trim())}` +
