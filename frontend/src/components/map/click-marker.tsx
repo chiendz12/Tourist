@@ -5,6 +5,7 @@ import mapboxgl from "mapbox-gl";
 import { geoApi } from "@/lib/api/services";
 import { reverseGeocode, type ParsedPlace } from "@/lib/mapbox-geocode";
 import { useMap } from "@/components/map/map-view";
+import type { DirPoint } from "@/components/map/directions-panel";
 
 /**
  * Click-to-pin on any map: clicking empty map space drops a draggable red
@@ -13,11 +14,18 @@ import { useMap } from "@/components/map/map-view";
  * are ignored so layer interactions keep working. A new click moves the
  * same marker instead of stacking pins.
  */
-export function ClickMarker() {
+export function ClickMarker({ onDirections }: { onDirections?: (point: DirPoint) => void }) {
   const map = useMap();
   const markerRef = React.useRef<mapboxgl.Marker | null>(null);
   const popupRef = React.useRef<mapboxgl.Popup | null>(null);
   const seqRef = React.useRef(0);
+  // Latest pinned place (for the directions action); kept in a ref so the
+  // map effect below doesn't need to re-subscribe when the callback changes.
+  const lastPlaceRef = React.useRef<{ lng: number; lat: number; label: string } | null>(null);
+  const onDirectionsRef = React.useRef(onDirections);
+  React.useEffect(() => {
+    onDirectionsRef.current = onDirections;
+  }, [onDirections]);
 
   React.useEffect(() => {
     if (!map) return;
@@ -46,6 +54,11 @@ export function ClickMarker() {
 
     const renderPopup = (lng: number, lat: number, place?: ParsedPlace | null) => {
       closePopup();
+      lastPlaceRef.current = {
+        lng,
+        lat,
+        label: place?.name && place.name !== "Vị trí đã chọn" ? place.name : `${lat.toFixed(5)}, ${lng.toFixed(5)}`,
+      };
       const rows: Array<[string, string]> = [];
       if (place?.street) rows.push(["Đường", place.street]);
       if (place?.ward) rows.push(["Phường/Xã", place.ward]);
@@ -67,7 +80,7 @@ export function ClickMarker() {
               : "") +
             `<div style="font-size:12px;color:#475569;font-variant-numeric:tabular-nums;margin-top:4px">${lat.toFixed(5)}, ${lng.toFixed(5)}</div>` +
             `<div style="display:flex;gap:6px;margin-top:8px">` +
-            `<a href="https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}" target="_blank" rel="noreferrer" style="flex:1;text-align:center;font-size:12px;font-weight:700;color:#fff;background:#1d4ed8;border-radius:8px;padding:6px 4px;text-decoration:none">Chỉ đường</a>` +
+            `<button data-act="directions" style="flex:1;font-size:12px;font-weight:700;color:#fff;background:#1d4ed8;border:0;border-radius:8px;padding:6px 4px;cursor:pointer">Chỉ đường</button>` +
             `<button data-act="copy" style="flex:1;font-size:12px;font-weight:700;color:#334155;background:#f1f5f9;border:0;border-radius:8px;padding:6px 4px;cursor:pointer">Sao chép</button>` +
             `<button data-act="clear" title="Xóa ghim" style="font-size:12px;font-weight:700;color:#64748b;background:#f1f5f9;border:0;border-radius:8px;padding:6px 8px;cursor:pointer">✕</button>` +
             `</div></div>`,
@@ -76,6 +89,11 @@ export function ClickMarker() {
       popupRef.current = popup;
       const el = popup.getElement();
       if (!el) return;
+      el.querySelector('[data-act="directions"]')?.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const p = lastPlaceRef.current;
+        if (p) onDirectionsRef.current?.({ lng: p.lng, lat: p.lat, label: p.label });
+      });
       el.querySelector('[data-act="copy"]')?.addEventListener("click", async (e) => {
         e.stopPropagation();
         try {

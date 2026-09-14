@@ -34,6 +34,7 @@ import { ReviewForm } from "@/components/destination/review-form";
 import { CommentBox } from "@/components/destination/comment-box";
 import { useToast } from "@/components/ui/toast";
 import { CATEGORY_LABEL } from "@/components/map/interactive/left-panel";
+import type { DirPoint } from "@/components/map/directions-panel";
 
 interface DestinationModalProps {
   id: string;
@@ -49,6 +50,8 @@ interface DestinationModalProps {
   isStop: boolean;
   isFav: boolean;
   onToggleFavorite: () => void;
+  /** In-app directions (drawn on our map). Falls back to Google Maps link when absent. */
+  onDirections?: (point: DirPoint) => void;
 }
 
 type ModalTab = "overview" | "tours" | "reviews";
@@ -75,6 +78,7 @@ export function DestinationModal({
   isStop,
   isFav,
   onToggleFavorite,
+  onDirections,
 }: DestinationModalProps) {
   const router = useRouter();
   const { toast } = useToast();
@@ -284,15 +288,28 @@ export function DestinationModal({
                     {copied ? <Check className="size-4 text-emerald-600" /> : <Share2 className="size-4" />}
                     {copied ? "Đã chép!" : "Chia sẻ"}
                   </button>
-                  <a
-                    href={`https://www.google.com/maps/dir/?api=1&destination=${d.lat},${d.lng}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-emerald-200 px-3 py-2.5 text-sm font-bold text-emerald-600 transition hover:bg-emerald-50"
-                  >
-                    <Navigation className="size-4" />
-                    Xem chỉ đường
-                  </a>
+                  {onDirections && d ? (
+                    <button
+                      type="button"
+                      onClick={() => onDirections({ lng: d.lng, lat: d.lat, label: d.name })}
+                      className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-emerald-200 px-3 py-2.5 text-sm font-bold text-emerald-600 transition hover:bg-emerald-50"
+                    >
+                      <Navigation className="size-4" />
+                      Chỉ đường
+                    </button>
+                  ) : (
+                    d ? (
+                      <a
+                        href={`https://www.google.com/maps/dir/?api=1&destination=${d.lat},${d.lng}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-emerald-200 px-3 py-2.5 text-sm font-bold text-emerald-600 transition hover:bg-emerald-50"
+                      >
+                        <Navigation className="size-4" />
+                        Xem chỉ đường
+                      </a>
+                    ) : null
+                  )}
                 </div>
               </div>
 
@@ -326,14 +343,26 @@ export function DestinationModal({
                       Cách bạn {km < 1 ? `${Math.round(km * 1000)} m` : `${km.toFixed(0)} km`}
                     </span>
                   ) : null}
-                  <a
-                    href={`https://www.google.com/maps/dir/?api=1&destination=${d.lat},${d.lng}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="font-bold text-[#1d4ed8] hover:underline"
-                  >
-                    Chỉ đường
-                  </a>
+                  {onDirections && d ? (
+                    <button
+                      type="button"
+                      onClick={() => onDirections({ lng: d.lng, lat: d.lat, label: d.name })}
+                      className="font-bold text-[#1d4ed8] hover:underline"
+                    >
+                      Chỉ đường
+                    </button>
+                  ) : (
+                    d ? (
+                      <a
+                        href={`https://www.google.com/maps/dir/?api=1&destination=${d.lat},${d.lng}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="font-bold text-[#1d4ed8] hover:underline"
+                      >
+                        Chỉ đường
+                      </a>
+                    ) : null
+                  )}
                 </p>
                 <p className="mt-1.5 flex items-center gap-1.5 text-sm text-slate-600">
                   <Ticket className="size-4 text-slate-400" />
@@ -578,15 +607,29 @@ export function DestinationModal({
                   >
                     {copied ? <Check className="size-4 text-emerald-600" /> : <Link2 className="size-4" />}
                   </button>
-                  <a
-                    href={`https://www.google.com/maps/dir/?api=1&destination=${d.lat},${d.lng}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    aria-label="Chỉ đường"
-                    className="grid size-11 shrink-0 place-items-center rounded-xl border border-emerald-200 text-emerald-600"
-                  >
-                    <Navigation className="size-4" />
-                  </a>
+                  {onDirections && d ? (
+                    <button
+                      type="button"
+                      onClick={() => onDirections({ lng: d.lng, lat: d.lat, label: d.name })}
+                      aria-label="Chỉ đường"
+                      title="Chỉ đường trên bản đồ"
+                      className="grid size-11 shrink-0 place-items-center rounded-xl border border-emerald-200 text-emerald-600 transition hover:bg-emerald-50"
+                    >
+                      <Navigation className="size-4" />
+                    </button>
+                  ) : (
+                    d ? (
+                      <a
+                        href={`https://www.google.com/maps/dir/?api=1&destination=${d.lat},${d.lng}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        aria-label="Chỉ đường"
+                        className="grid size-11 shrink-0 place-items-center rounded-xl border border-emerald-200 text-emerald-600"
+                      >
+                        <Navigation className="size-4" />
+                      </a>
+                    ) : null
+                  )}
                   <button
                     type="button"
                     onClick={() => setExportOpen(true)}

@@ -72,6 +72,21 @@ export const geoApi = {
     }),
 };
 
+/** Road routing through our backend (server-side Mapbox token). */
+export interface DirectionsRoute {
+  geometry: { type: "LineString"; coordinates: [number, number][] };
+  distance: number;
+  duration: number;
+}
+
+export const mapboxApi = {
+  directions: (from: { lng: number; lat: number }, to: { lng: number; lat: number }) =>
+    json<{ routes?: DirectionsRoute[] }>("/mapbox/directions", {
+      method: "POST",
+      body: { coordinates: [from, to] },
+    }),
+};
+
 /* Provinces */
 
 export const provincesApi = {

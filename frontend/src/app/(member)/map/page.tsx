@@ -21,6 +21,12 @@ import {
   type PriceTier,
 } from "@/components/map/interactive/left-panel";
 import { DestinationModal } from "@/components/map/interactive/destination-modal";
+import { DirectionsLine } from "@/components/map/directions-line";
+import {
+  DirectionsPanel,
+  fetchRoute,
+  type DirPoint,
+} from "@/components/map/directions-panel";
 import { Tray } from "@/components/map/interactive/tray";
 import {
   destinationsApi,
@@ -180,6 +186,9 @@ export default function MapPage() {
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
   const [stopIds, setStopIds] = React.useState<string[]>([]);
   const [userPosition, setUserPosition] = React.useState<{ lng: number; lat: number } | null>(null);
+  const [dirOpen, setDirOpen] = React.useState(false);
+  const [dirFrom, setDirFrom] = React.useState<DirPoint | null>(null);
+  const [dirTo, setDirTo] = React.useState<DirPoint | null>(null);
   const [extraStops, setExtraStops] = React.useState<Map<string, Destination>>(new Map());
   const [ratingCache, setRatingCache] = React.useState<Map<string, MarkerRating>>(
     () =>
@@ -243,8 +252,39 @@ export default function MapPage() {
     enabled: !!user,
   });
 
-  const toggleFav = useMutation({
-    mutationFn: async (destinationId: string) => {
+  // In-app directions: destination comes from a marker/modal/pin click,
+  // origin defaults to the user's location when known.
+  const openDirections = React.useCallback(
+    (point: DirPoint) => {
+      setDirTo(point);
+      setDirFrom((prev) =>
+        prev ?? (userPosition ? { ...userPosition, label: "Vị trí của tôi" } : null),
+      );
+      setDirOpen(true);
+      setSelectedId(null);
+    },
+    [userPosition],
+  );
+
+  const closeDirections = React.useCallback(() => {
+    setDirOpen(false);
+    setDirFrom(null);
+    setDirTo(null);
+  }, []);
+
+  const routeQuery = useQuery({
+    queryKey: [
+      "directions",
+      dirFrom ? `${dirFrom.lng.toFixed(5)},${dirFrom.lat.toFixed(5)}` : null,
+      dirTo ? `${dirTo.lng.toFixed(5)},${dirTo.lat.toFixed(5)}` : null,
+    ],
+    queryFn: () => fetchRoute(dirFrom!, dirTo!),
+    enabled: dirOpen && !!dirFrom && !!dirTo,
+    staleTime: 5 * 60_000,
+    retry: 1,
+  });
+
+  const toggleFav = useMutation({    mutationFn: async (destinationId: string) => {
       const ids = new Set((favorites.data ?? []).map((f) => f.destinationId));
       if (ids.has(destinationId)) await favoritesApi.remove(destinationId);
       else await favoritesApi.add(destinationId);
@@ -415,7 +455,16 @@ export default function MapPage() {
   return (
     <div className="relative h-dvh overflow-hidden bg-slate-100">
       <MapView className="absolute inset-0" center={CENTER} zoom={ZOOM} onReady={handleMapReady}>
-        <ClickMarker />
+        <ClickMarker onDirections={openDirections} />
+        <DirectionsLine
+          route={
+            routeQuery.data?.coordinates?.length
+              ? { coordinates: routeQuery.data.coordinates }
+              : null
+          }
+          from={dirOpen ? dirFrom : null}
+          to={dirOpen ? dirTo : null}
+        />
         {layers.poi ? (
           <MapLayers
             destinations={visible}
@@ -497,6 +546,26 @@ export default function MapPage() {
           isStop={stopIds.includes(selectedId)}
           isFav={favIds.has(selectedId)}
           onToggleFavorite={() => toggleFav.mutate(selectedId)}
+          onDirections={openDirections}
+        />
+      ) : null}
+
+      {dirOpen ? (
+        <DirectionsPanel
+          from={dirFrom}
+          to={dirTo}
+          onFrom={setDirFrom}
+          onTo={setDirTo}
+          onSwap={() => {
+            setDirFrom(dirTo);
+            setDirTo(dirFrom);
+          }}
+          onClose={closeDirections}
+          candidates={visible}
+          userPosition={userPosition}
+          loading={routeQuery.isFetching}
+          route={routeQuery.data ?? null}
+          settled={routeQuery.isFetched && !routeQuery.isFetching}
         />
       ) : null}
 
