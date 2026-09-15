@@ -128,8 +128,6 @@ function expandInstitutionQuery(query: string): string | null {
   const heads = [
     "đại học",
     "dai hoc",
-    "học viện",
-    "hoc vien",
     "cao đẳng",
     "cao dang",
     "trung học",
@@ -221,25 +219,29 @@ async function searchLocal(query: string): Promise<PlaceResult[]> {
 }
 
 /**
- * Combined place search for data entry: our own database first (exact
- * curated places), then OpenStreetMap (real POIs Mapbox lacks, e.g. Chùa
- * Bái Đính), then Mapbox (streets/addresses). Results carry provenance.
+ * Combined place search: our own database, Photon completion (partial
+ * words), OpenStreetMap (real POIs Mapbox lacks), Mapbox (streets).
+ * Results carry provenance.
  *
  * Nominatim allows ~1 req/s and answers 429 to parallel bursts, so it gets
- * exactly ONE call per search (raw query). Variant fan-out (unaccented +
- * generic-prefix stripped, e.g. "đường lạc long quân" → "lạc long quân")
- * runs on Mapbox only, which tolerates parallelism. Everything merges with
- * provenance-aware dedupe, cap 10.
+ * exactly ONE call per search. Variant fan-out (generic-prefix stripped)
+ * and the second Photon pass run on providers that tolerate parallelism.
+ * Everything merges with provenance-aware dedupe, ranks by textual match
+ * (phrase > all-words-in-name > all-words-anywhere, popular exact hits
+ * first regardless of viewport), cap 10.
  */
 export async function searchPlaces(query: string, bias?: SearchBias): Promise<PlaceResult[]> {
   if (query.trim().length < 2) return [];
   const raw = query.trim();
   const stripped = stripGenericPrefix(raw);
+  const biasedBox = photonBbox(bias);
   const jobs: Array<Promise<PlaceResult[]>> = [
     searchLocal(raw),
-    // Photon completes partial words ("học viện tài" → "Học viện Tài
-    // chính"); Nominatim/Mapbox only match whole tokens.
-    searchPhoton(raw, bias),
+    // Photon twice: viewport-biased for local relevance AND national so
+    // famous far-away hits (e.g. Hanoi academies while viewing Đà Nẵng)
+    // never vanish. Photon tolerates parallel calls.
+    searchPhoton(raw, biasedBox),
+    ...(biasedBox !== VN_BBOX ? [searchPhoton(raw, VN_BBOX)] : []),
     searchOsm(raw, bias),
     searchMapbox(raw, 8, bias),
   ];
@@ -275,22 +277,27 @@ interface PhotonFeature {
   };
 }
 
+/** Vietnam-wide fallback box (Photon order: minLng,minLat,maxLng,maxLat). */
+const VN_BBOX = "102,8,110,24";
+
+function photonBbox(bias?: SearchBias): string {
+  if (!bias?.viewbox) return VN_BBOX;
+  // Ours is Nominatim order (minLng,maxLat,maxLng,minLat).
+  const [minLng, maxLat, maxLng, minLat] = bias.viewbox.split(",").map(Number);
+  if ([minLng, maxLat, maxLng, minLat].every(Number.isFinite)) {
+    return `${minLng},${minLat},${maxLng},${maxLat}`;
+  }
+  return VN_BBOX;
+}
+
 /**
  * Photon (komoot) completion over OSM data: unlike Nominatim it matches
  * PARTIAL words, so "học viện tài" already returns "Học viện Tài chính".
  * Same OSM provenance, hence the "OpenStreetMap" source label. Note: no
  * `lang` param — Photon 400s on unsupported languages (only de/en/fr…).
  */
-async function searchPhoton(query: string, bias?: SearchBias): Promise<PlaceResult[]> {
+async function searchPhoton(query: string, bbox: string): Promise<PlaceResult[]> {
   try {
-    // Photon bbox order is minLng,minLat,maxLng,maxLat (ours is Nominatim order).
-    let bbox = "102,8,110,24";
-    if (bias?.viewbox) {
-      const [minLng, maxLat, maxLng, minLat] = bias.viewbox.split(",").map(Number);
-      if ([minLng, maxLat, maxLng, minLat].every(Number.isFinite)) {
-        bbox = `${minLng},${minLat},${maxLng},${maxLat}`;
-      }
-    }
     const res = await fetch(
       `https://photon.komoot.io/api/?q=${encodeURIComponent(query.trim())}&limit=8&bbox=${bbox}`,
       { headers: { Accept: "application/json" } },
@@ -327,7 +334,8 @@ async function searchPhoton(query: string, bias?: SearchBias): Promise<PlaceResu
   }
 }
 
-/** Single-word Vietnamese generics ignored when judging a close match. */const GENERIC_WORDS = new Set([
+/** Single-word Vietnamese generics ignored when judging a close match. */
+const GENERIC_WORDS = new Set([
   "khu", "do", "đô", "thi", "thị", "phuong", "phường", "xa", "xã",
   "tinh", "tỉnh", "quan", "quận", "huyen", "huyện", "thanh", "thành",
   "pho", "phố", "duong", "đường", "dai", "đại", "lo", "lộ", "ho", "hồ",
@@ -362,23 +370,42 @@ function significantWords(query: string): string[] {
 
 function matchScore(r: PlaceResult, queryLower: string, words: string[]): number {
   const name = r.name.toLowerCase();
-  if (name.includes(queryLower)) return 2;
-  if (words.length === 0) return 1;
-  const hay = `${r.name} ${r.address}`.toLowerCase();
-  return words.every((w) => hay.includes(w) || hay.includes(stripAccents(w))) ? 1 : 0;
+  if (name.includes(queryLower)) return 3;
+  if (words.length === 0) return 2;
+  const nameHay = name;
+  const fullHay = `${r.name} ${r.address}`.toLowerCase();
+  const covers = (hay: string) => words.every((w) => hay.includes(w) || hay.includes(stripAccents(w)));
+  if (covers(nameHay)) return 2;
+  if (covers(fullHay)) return 1;
+  return 0;
+}
+
+function rankKey(r: PlaceResult, queryLower: string): [number, number, number] {
+  const firstWord = queryLower.split(/\s+/)[0] ?? "";
+  const startsWithFirst = firstWord.length > 1 && r.name.toLowerCase().startsWith(firstWord) ? 0 : 1;
+  return [startsWithFirst, r.name.length, 0];
 }
 
 /**
- * Best textual matches first (stable — ties keep provider order, so local
- * curated hits still lead among equals). Full-phrase name containment wins,
- * then all-significant-words coverage, then the rest.
+ * Best textual matches first: full-phrase name containment wins, then
+ * all-significant-words in the name, then in name+address. Ties break
+ * toward names starting with the query, then shorter names (exact
+ * entities like "Học viện Tài chính" outrank "Phân hiệu Học viện Hành
+ * chính và Quản trị công tại…"), then provider order (stable — local
+ * curated hits still lead among equals).
  */
 export function rankPlaces(results: PlaceResult[], query: string): PlaceResult[] {
   const queryLower = query.trim().toLowerCase();
   const words = significantWords(query);
   return results
     .map((r, i) => ({ r, i }))
-    .sort((a, b) => matchScore(b.r, queryLower, words) - matchScore(a.r, queryLower, words) || a.i - b.i)
+    .sort((a, b) => {
+      const byScore = matchScore(b.r, queryLower, words) - matchScore(a.r, queryLower, words);
+      if (byScore !== 0) return byScore;
+      const [as, al] = rankKey(a.r, queryLower);
+      const [bs, bl] = rankKey(b.r, queryLower);
+      return as - bs || al - bl || a.i - b.i;
+    })
     .map((x) => x.r);
 }
 
