@@ -237,6 +237,9 @@ export async function searchPlaces(query: string, bias?: SearchBias): Promise<Pl
   const stripped = stripGenericPrefix(raw);
   const jobs: Array<Promise<PlaceResult[]>> = [
     searchLocal(raw),
+    // Photon completes partial words ("học viện tài" → "Học viện Tài
+    // chính"); Nominatim/Mapbox only match whole tokens.
+    searchPhoton(raw, bias),
     searchOsm(raw, bias),
     searchMapbox(raw, 8, bias),
   ];
@@ -254,8 +257,77 @@ export async function searchPlaces(query: string, bias?: SearchBias): Promise<Pl
   return rankPlaces(pooled, raw).slice(0, 10);
 }
 
-/** Single-word Vietnamese generics ignored when judging a close match. */
-const GENERIC_WORDS = new Set([
+interface PhotonFeature {
+  geometry?: { coordinates?: [number, number] };
+  properties?: {
+    osm_type?: string;
+    osm_id?: number;
+    name?: string;
+    street?: string;
+    housenumber?: string;
+    district?: string;
+    suburb?: string;
+    city?: string;
+    town?: string;
+    village?: string;
+    state?: string;
+    country?: string;
+  };
+}
+
+/**
+ * Photon (komoot) completion over OSM data: unlike Nominatim it matches
+ * PARTIAL words, so "học viện tài" already returns "Học viện Tài chính".
+ * Same OSM provenance, hence the "OpenStreetMap" source label. Note: no
+ * `lang` param — Photon 400s on unsupported languages (only de/en/fr…).
+ */
+async function searchPhoton(query: string, bias?: SearchBias): Promise<PlaceResult[]> {
+  try {
+    // Photon bbox order is minLng,minLat,maxLng,maxLat (ours is Nominatim order).
+    let bbox = "102,8,110,24";
+    if (bias?.viewbox) {
+      const [minLng, maxLat, maxLng, minLat] = bias.viewbox.split(",").map(Number);
+      if ([minLng, maxLat, maxLng, minLat].every(Number.isFinite)) {
+        bbox = `${minLng},${minLat},${maxLng},${maxLat}`;
+      }
+    }
+    const res = await fetch(
+      `https://photon.komoot.io/api/?q=${encodeURIComponent(query.trim())}&limit=8&bbox=${bbox}`,
+      { headers: { Accept: "application/json" } },
+    );
+    if (!res.ok) return [];
+    const body = (await res.json()) as { features?: PhotonFeature[] };
+    return (body.features ?? [])
+      .filter((f) => Array.isArray(f.geometry?.coordinates))
+      .map((f) => {
+        const p = f.properties ?? {};
+        const [lng, lat] = f.geometry!.coordinates!;
+        const street = [p.housenumber, p.street].filter((x): x is string => !!x).join(" ");
+        const address = [
+          street || undefined,
+          p.district ?? p.suburb,
+          p.city ?? p.town ?? p.village,
+          p.state,
+          p.country,
+        ]
+          .filter((x): x is string => !!x?.trim())
+          .join(", ");
+        return {
+          id: `photon-${p.osm_type ?? "o"}-${p.osm_id ?? `${lng.toFixed(4)},${lat.toFixed(4)}`}`,
+          name: p.name || query.trim(),
+          address,
+          lng,
+          lat,
+          source: "OpenStreetMap" as const,
+        };
+      })
+      .filter((r) => Number.isFinite(r.lng) && Number.isFinite(r.lat));
+  } catch {
+    return [];
+  }
+}
+
+/** Single-word Vietnamese generics ignored when judging a close match. */const GENERIC_WORDS = new Set([
   "khu", "do", "đô", "thi", "thị", "phuong", "phường", "xa", "xã",
   "tinh", "tỉnh", "quan", "quận", "huyen", "huyện", "thanh", "thành",
   "pho", "phố", "duong", "đường", "dai", "đại", "lo", "lộ", "ho", "hồ",
