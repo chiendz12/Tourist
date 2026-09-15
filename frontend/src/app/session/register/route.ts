@@ -16,7 +16,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   });
 
   const payload = (await upstream.json().catch(() => null)) as {
-    data?: AuthResult;
+    data?: AuthResult & { pending?: boolean };
   } | null;
 
   if (!upstream.ok || !payload?.data) {
@@ -24,6 +24,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       payload ?? { error: "Không thể tạo tài khoản" },
       { status: upstream.status || 500 },
     );
+  }
+
+  // Pending-approval registrations carry no tokens — nothing to sign in.
+  if (payload.data.pending || !payload.data.accessToken) {
+    return NextResponse.json({ user: payload.data.user, pending: true });
   }
 
   const { accessToken, refreshToken, user } = payload.data;

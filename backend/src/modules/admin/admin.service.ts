@@ -1,9 +1,10 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { ApprovalStatus, ModerationStatus, Prisma } from '@prisma/client';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { ApprovalStatus, ModerationStatus, Prisma, Role } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { Actor } from '../../common/utils/ownership.util';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PaginatedResult } from '../../types';
+import { EmailService } from '../notification/email.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { QueryUserDto } from './dto/query-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
@@ -18,13 +19,17 @@ const USER_SELECT = {
   phone: true,
   role: true,
   isActive: true,
+  isApproved: true,
   emailVerified: true,
   createdAt: true,
 } satisfies Prisma.UserSelect;
 
 @Injectable()
 export class AdminService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly email: EmailService,
+  ) {}
 
   async overview() {
     const [users, destinations, routes, tours, suppliers, pendingApprovals, publishedDestinations] =
@@ -157,8 +162,110 @@ export class AdminService {
     return updated;
   }
 
-  async reports() {
-    const [approvalStatus, approvalEntity, destinationStatus, routeStatus, tourStatus, supplierStatus, costStatus] = await Promise.all([
+  /**
+   * Self-registered accounts awaiting approval. Lecturers see only pending
+   * STUDENT registrations; admins see everything (incl. LECTURER ones).
+   */
+  async listPendingUsers(actor: Actor, query: QueryUserDto): Promise<PaginatedResult<unknown>> {
+    const where: Prisma.UserWhereInput = { isApproved: false };
+    if (actor.role === Role.LECTURER) {
+      where.role = Role.STUDENT;
+    } else if (query.role) {
+      where.role = query.role;
+    }
+    if (query.q) {
+      where.OR = [
+        { fullName: { contains: query.q, mode: 'insensitive' } },
+        { email: { contains: query.q, mode: 'insensitive' } },
+        { username: { contains: query.q, mode: 'insensitive' } },
+      ];
+    }
+    const skip = (query.page - 1) * query.limit;
+    const [data, total] = await this.prisma.$transaction([
+      this.prisma.user.findMany({
+        where,
+        select: USER_SELECT,
+        orderBy: { createdAt: 'asc' },
+        skip,
+        take: query.limit,
+      }),
+      this.prisma.user.count({ where }),
+    ]);
+    return {
+      data,
+      meta: {
+        page: query.page,
+        limit: query.limit,
+        total,
+        totalPages: Math.ceil(total / query.limit),
+      },
+    };
+  }
+
+  async approveUser(id: string, actor: Actor) {
+    const target = await this.prisma.user.findUnique({ where: { id } });
+    if (!target) throw new NotFoundException('User not found');
+    this.assertApprovable(actor, target.id, target.role, target.isApproved);
+    const updated = await this.prisma.user.update({
+      where: { id },
+      data: { isActive: true, isApproved: true },
+      select: USER_SELECT,
+    });
+    await this.prisma.auditLog.create({
+      data: {
+        userId: actor.id,
+        action: 'USER_APPROVE',
+        entity: 'User',
+        entityId: id,
+        metadata: { role: target.role },
+      },
+    });
+    const title = 'Tài khoản của bạn đã được duyệt';
+    const body = `Chúc mừng ${target.fullName}! Tài khoản ${target.role === Role.LECTURER ? 'giảng viên' : 'sinh viên'} của bạn đã được phê duyệt — bạn có thể đăng nhập ngay.`;
+    await this.prisma.notification.create({
+      data: { userId: id, title, body, type: 'USER_APPROVAL', data: { approved: true } },
+    });
+    await this.email.sendToUser(id, title, body).catch(() => undefined);
+    return updated;
+  }
+
+  /**
+   * Rejection deletes the pending row so the email/username can register
+   * again. Only unapproved rows are deletable — active content owners can
+   * never disappear through this path.
+   */
+  async rejectUser(id: string, actor: Actor) {
+    const target = await this.prisma.user.findUnique({ where: { id } });
+    if (!target) throw new NotFoundException('User not found');
+    this.assertApprovable(actor, target.id, target.role, target.isApproved);
+    const title = 'Đăng ký tài khoản chưa được duyệt';
+    const body = `Rất tiếc, đăng ký tài khoản ${target.role === Role.LECTURER ? 'giảng viên' : 'sinh viên'} của ${target.fullName} chưa được phê duyệt. Bạn có thể đăng ký lại với thông tin đầy đủ hơn.`;
+    await this.prisma.auditLog.create({
+      data: {
+        userId: actor.id,
+        action: 'USER_REJECT',
+        entity: 'User',
+        entityId: id,
+        metadata: { role: target.role, email: target.email },
+      },
+    });
+    await this.email.sendToUser(id, title, body).catch(() => undefined);
+    await this.prisma.user.delete({ where: { id } });
+    return { id, rejected: true as const };
+  }
+
+  /** Lecturers may only act on pending STUDENT rows — never admins, never themselves. */
+  private assertApprovable(actor: Actor, targetId: string, targetRole: Role, isApproved: boolean) {
+    if (isApproved) throw new ConflictException('This account is already approved');
+    if (actor.id === targetId) {
+      throw new ForbiddenException('You cannot review your own registration');
+    }
+    if (actor.role === Role.LECTURER && targetRole !== Role.STUDENT) {
+      throw new ForbiddenException('Lecturers may only review student registrations');
+    }
+  }
+
+  async reports() {    const [approvalStatus, approvalEntity, destinationStatus, routeStatus, tourStatus, supplierStatus, costStatus] = await Promise.all([
       this.prisma.approval.groupBy({ by: ['status'], _count: { _all: true } }),
       this.prisma.approval.groupBy({ by: ['entityType'], _count: { _all: true } }),
       this.prisma.destination.groupBy({ by: ['status'], _count: { _all: true } }),

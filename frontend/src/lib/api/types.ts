@@ -279,6 +279,7 @@ export interface AdminUser {
   phone?: string | null;
   role: string;
   isActive: boolean;
+  isApproved: boolean;
   emailVerified?: boolean;
   createdAt: string;
 }

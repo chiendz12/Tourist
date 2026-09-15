@@ -275,6 +275,9 @@ export const adminApi = {
     json<AdminUser>(`/admin/users/${id}`, { method: "PATCH", body }),
   audit: (q?: Query) =>
     json<Paginated<AuditRecord>>("/admin/audit", { query: q }),
+  pendingUsers: (q?: Query) => json<Paginated<AdminUser>>("/admin/user-approvals", { query: q }),
+  reviewUser: (id: string, action: "APPROVE" | "REJECT") =>
+    json<unknown>(`/admin/user-approvals/${id}`, { method: "PATCH", body: { action } }),
 };
 
 export const classesApi = {

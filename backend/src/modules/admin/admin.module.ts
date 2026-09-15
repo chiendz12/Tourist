@@ -4,11 +4,14 @@ import { SystemLockGuard } from '../../common/guards/system-lock.guard';
 import { AdminController } from './admin.controller';
 import { AdminService } from './admin.service';
 import { SystemSettingService } from './system-setting.service';
+import { UserApprovalController } from './user-approval.controller';
+import { NotificationModule } from '../notification/notification.module';
 
 // Global so the app-wide SystemLockGuard can resolve SystemSettingService.
 @Global()
 @Module({
-  controllers: [AdminController],
+  imports: [NotificationModule],
+  controllers: [AdminController, UserApprovalController],
   providers: [
     AdminService,
     SystemSettingService,

@@ -10,10 +10,11 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { ProvinceGuard } from '../../common/guards/province.guard';
 import { HocPhanGuard } from '../../common/guards/hocphan.guard';
 import { ProvinceModule } from '../province/province.module';
+import { NotificationModule } from '../notification/notification.module';
 
 @Module({
   // ProvinceModule supplies ProvinceAccessService to the globally-registered ProvinceGuard.
-  imports: [PassportModule, JwtModule.register({}), ProvinceModule],
+  imports: [PassportModule, JwtModule.register({}), ProvinceModule, NotificationModule],
   providers: [
     AuthService,
     JwtStrategy,

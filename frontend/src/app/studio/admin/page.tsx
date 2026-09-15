@@ -22,6 +22,7 @@ import {
 import { buttonClass } from "@/components/ui/button";
 import { DashboardShell } from "@/components/studio/dashboard-shell";
 import { ExportButton, LockButton, Ring, StatCard } from "@/components/studio/widgets";
+import { UserApprovalButtons } from "@/components/studio/user-approval-buttons";
 import { timeAgo } from "@/lib/utils";
 
 const ADMIN_NAV = [
@@ -67,11 +68,12 @@ export default async function AdminPage({
   const role = (params.role ?? "all").toUpperCase();
   const roleFilter = (ROLE_TABS as readonly string[]).includes(role) && role !== "all" ? role : undefined;
 
-  const [overviewTimed, users, audit, provinces, published, notifications] = await Promise.all([
+  const [overviewTimed, users, pending, audit, provinces, published, notifications] = await Promise.all([
     timed(() => adminApi.overview().catch(() => null)),
     adminApi
       .users({ limit: 12, ...(q ? { q } : {}), ...(roleFilter ? { role: roleFilter } : {}) })
       .catch(() => ({ data: [], meta: { page: 1, limit: 12, total: 0, totalPages: 0 } })),
+    adminApi.pendingUsers({ limit: 20 }).catch(() => ({ data: [], meta: null as never })),
     adminApi.audit({ limit: 8 }).catch(() => ({ data: [], meta: null as never })),
     provincesApi.list().catch(() => []),
     destinationsApi
@@ -104,6 +106,7 @@ export default async function AdminPage({
 
   const unread = (notifications.data ?? []).filter((n) => !n.readAt).length;
   const auditItems = audit.data ?? [];
+  const pendingUsers = pending.data ?? [];
 
   return (
     <DashboardShell
@@ -161,6 +164,43 @@ export default async function AdminPage({
       </div>
 
       <div className="mt-4 grid items-start gap-4 xl:grid-cols-[280px_1fr_340px]">
+        <div className="min-w-0 space-y-4">
+        <section className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-900/5">
+          <div className="flex items-center justify-between">
+            <h2 className="text-base font-bold text-slate-900">Tài khoản chờ duyệt</h2>
+            <span className="rounded-md bg-amber-100 px-1.5 text-xs font-bold text-amber-700">
+              {pendingUsers.length}
+            </span>
+          </div>
+          <p className="mt-0.5 text-xs text-slate-400">Sinh viên do GV/admin duyệt · Giảng viên chỉ admin duyệt</p>
+          {pendingUsers.length === 0 ? (
+            <p className="mt-3 rounded-xl bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
+              Không có tài khoản nào đang chờ.
+            </p>
+          ) : (
+            <ul className="mt-3 space-y-1.5">
+              {pendingUsers.map((u) => (
+                <li
+                  key={u.id}
+                  className="flex flex-wrap items-center gap-2 rounded-xl border border-amber-100 bg-amber-50/40 px-3 py-2"
+                >
+                  <span className="grid size-9 shrink-0 place-items-center rounded-full bg-[#1d4ed8]/10 text-xs font-black text-[#1d4ed8]">
+                    {u.fullName.trim().charAt(0).toUpperCase()}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[13px] font-bold text-slate-800">
+                      {u.fullName}
+                    </span>
+                    <span className="block truncate text-xs text-slate-400">
+                      {ROLE_VI[u.role] ?? u.role} · {u.email} · {timeAgo(u.createdAt)}
+                    </span>
+                  </span>
+                  <UserApprovalButtons id={u.id} fullName={u.fullName} />
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
         <section className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-900/5">
           <h2 className="text-base font-bold text-slate-900">Mật độ dữ liệu toàn quốc</h2>
           <ul className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-slate-500">
@@ -206,6 +246,7 @@ export default async function AdminPage({
             {published.length} điểm trên bản đồ
           </span>
         </section>
+        </div>
 
         <section className="min-w-0 rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-900/5">
           <div className="flex flex-wrap items-center justify-between gap-2">

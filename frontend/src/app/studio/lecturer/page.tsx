@@ -9,6 +9,7 @@ import {
   Users,
 } from "lucide-react";
 import {
+  adminApi,
   approvalsApi,
   authApi,
   destinationsApi,
@@ -18,6 +19,7 @@ import {
 import { classesApi } from "@/lib/api/services";
 import type { ClassItem } from "@/lib/api/types";
 import { buttonClass } from "@/components/ui/button";
+import { UserApprovalButtons } from "@/components/studio/user-approval-buttons";
 import { DashboardShell } from "@/components/studio/dashboard-shell";
 import { ExportButton, Ring, StatCard } from "@/components/studio/widgets";
 import { timeAgo } from "@/lib/utils";
@@ -57,7 +59,7 @@ export default async function LecturerPage({
   if (me.role !== "LECTURER" && me.role !== "SUPER_ADMIN") redirect("/studio");
 
   const q = ((await searchParams)?.q ?? "").trim().toLowerCase();
-  const [classes, summary, queue, provinces, published, notifications] = await Promise.all([
+  const [classes, summary, queue, pendingUsersData, provinces, published, notifications] = await Promise.all([
     classesApi.list().catch(() => []),
     approvalsApi
       .summary()
@@ -69,6 +71,7 @@ export default async function LecturerPage({
     approvalsApi
       .queue({ limit: 50 })
       .catch(() => ({ data: [], meta: null as never })),
+    adminApi.pendingUsers({ limit: 20 }).catch(() => ({ data: [], meta: null as never })),
     provincesApi.list().catch(() => []),
     destinationsApi
       .bbox({ minLng: 100, minLat: 8, maxLng: 112, maxLat: 24, limit: 500 })
@@ -94,6 +97,8 @@ export default async function LecturerPage({
   const pendingQueue = filteredQueue.filter((r) =>
     ["PENDING_LEADER", "PENDING_LECTURER", "PENDING_ADMIN"].includes(r.status),
   );
+  // Server already scopes this to pending STUDENT registrations for lecturers.
+  const pendingStudents = pendingUsersData.data ?? [];
 
   const byProvince = new Map<string, number>();
   for (const d of published) {
@@ -174,6 +179,43 @@ export default async function LecturerPage({
 
       <div className="mt-4 grid items-start gap-4 xl:grid-cols-[1fr_320px]">
         <div className="min-w-0 space-y-4">
+          <section className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-900/5">
+            <div className="flex items-center justify-between">
+              <h2 className="text-base font-bold text-slate-900">
+                Tài khoản sinh viên chờ duyệt
+              </h2>
+              <span className="rounded-md bg-amber-100 px-1.5 text-xs font-bold text-amber-700">
+                {pendingStudents.length}
+              </span>
+            </div>
+            {pendingStudents.length === 0 ? (
+              <p className="mt-3 rounded-xl bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
+                Không có tài khoản nào đang chờ.
+              </p>
+            ) : (
+              <ul className="mt-3 space-y-1.5">
+                {pendingStudents.map((u) => (
+                  <li
+                    key={u.id}
+                    className="flex flex-wrap items-center gap-2 rounded-xl border border-amber-100 bg-amber-50/40 px-3 py-2"
+                  >
+                    <span className="grid size-9 shrink-0 place-items-center rounded-full bg-[#1d4ed8]/10 text-xs font-black text-[#1d4ed8]">
+                      {u.fullName.trim().charAt(0).toUpperCase()}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[13px] font-bold text-slate-800">
+                        {u.fullName}
+                      </span>
+                      <span className="block truncate text-xs text-slate-400">
+                        {u.email} · {timeAgo(u.createdAt)}
+                      </span>
+                    </span>
+                    <UserApprovalButtons id={u.id} fullName={u.fullName} />
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
           <section className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-900/5">
             <div className="flex items-center justify-between">
               <h2 className="text-base font-bold text-slate-900">

@@ -11,6 +11,8 @@ export default function RegisterPage() {
   const router = useRouter();
   const [submitting, setSubmitting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const [role, setRole] = React.useState<"STUDENT" | "LECTURER">("STUDENT");
+  const [pending, setPending] = React.useState(false);
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -24,6 +26,7 @@ export default function RegisterPage() {
       password: String(form.get("password") ?? ""),
       fullName: String(form.get("fullName") ?? ""),
       phone: String(form.get("phone") ?? "") || undefined,
+      role,
     };
 
     try {
@@ -32,10 +35,11 @@ export default function RegisterPage() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify(body),
       });
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: { message?: string } | string;
+        pending?: boolean;
+      };
       if (!res.ok) {
-        const data = (await res.json().catch(() => ({}))) as {
-          error?: { message?: string } | string;
-        };
         const msg =
           (typeof data.error === "object" && data.error?.message) ||
           data.error ||
@@ -43,11 +47,44 @@ export default function RegisterPage() {
         setError(String(msg));
         return;
       }
+      if (data.pending) {
+        // No session is created: the account waits for reviewer approval.
+        setPending(true);
+        return;
+      }
       router.replace("/me");
       router.refresh();
     } finally {
       setSubmitting(false);
     }
+  }
+
+  if (pending) {
+    return (
+      <AuthShell
+        title="Đăng ký thành công"
+        subtitle="Tài khoản của bạn đang chờ phê duyệt."
+        footer={
+          <p>
+            Đã có tài khoản?{" "}
+            <Link href="/login" className="font-bold text-[#1d4ed8] hover:underline">
+              Đăng nhập
+            </Link>
+          </p>
+        }
+      >
+        <div className="rounded-xl bg-amber-50 px-4 py-5 text-center ring-1 ring-amber-200">
+          <p className="text-sm font-bold text-amber-800">
+            {role === "LECTURER"
+              ? "Tài khoản giảng viên đang chờ quản trị viên duyệt."
+              : "Tài khoản sinh viên đang chờ giảng viên hoặc quản trị viên duyệt."}
+          </p>
+          <p className="mt-1.5 text-[13px] text-amber-700">
+            Bạn sẽ nhận được email thông báo ngay khi tài khoản được phê duyệt, sau đó hãy đăng nhập.
+          </p>
+        </div>
+      </AuthShell>
+    );
   }
 
   return (
@@ -67,6 +104,33 @@ export default function RegisterPage() {
       }
     >
           <form className="space-y-3" onSubmit={onSubmit}>
+            <div>
+              <Label>Bạn đăng ký với vai trò</Label>
+              <div className="mt-1.5 grid grid-cols-2 gap-2" role="radiogroup" aria-label="Vai trò">
+                {(
+                  [
+                    { value: "STUDENT", label: "Sinh viên", sub: "GV hoặc admin duyệt" },
+                    { value: "LECTURER", label: "Giảng viên", sub: "Chỉ admin duyệt" },
+                  ] as const
+                ).map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    role="radio"
+                    aria-checked={role === opt.value}
+                    onClick={() => setRole(opt.value)}
+                    className={
+                      role === opt.value
+                        ? "rounded-xl border-2 border-[#1d4ed8] bg-[#1d4ed8]/5 px-3 py-2.5 text-left transition"
+                        : "rounded-xl border border-slate-200 px-3 py-2.5 text-left transition hover:border-slate-300"
+                    }
+                  >
+                    <span className="block text-sm font-bold text-slate-900">{opt.label}</span>
+                    <span className="block text-xs text-slate-500">{opt.sub}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
             <div>
               <Label htmlFor="fullName">Họ và tên</Label>
               <Input id="fullName" name="fullName" autoComplete="name" required />

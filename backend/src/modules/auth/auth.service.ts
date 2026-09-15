@@ -11,8 +11,9 @@ import * as bcrypt from 'bcrypt';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { LoginDto } from './dto/login.dto';
-import { RegisterDto } from './dto/register.dto';
+import { RegisterDto, REGISTERABLE_ROLES } from './dto/register.dto';
 import { JwtPayload, RefreshPayload } from './strategies/jwt.strategy';
+import { EmailService } from '../notification/email.service';
 
 @Injectable()
 export class AuthService {
@@ -22,13 +23,22 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
+    private readonly email: EmailService,
   ) {}
 
+  /**
+   * Self-registration (students + lecturers only). Accounts start inactive
+   * AND unapproved: a lecturer (students) or an admin must approve before
+   * first sign-in, so no tokens are issued here.
+   */
   async register(dto: RegisterDto) {
     const exists = await this.prisma.user.findFirst({
       where: { OR: [{ email: dto.email }, { username: dto.username }] },
     });
     if (exists) throw new ConflictException('Email or username already used');
+    const role = dto.role && (REGISTERABLE_ROLES as readonly Role[]).includes(dto.role)
+      ? dto.role
+      : Role.STUDENT;
     const passwordHash = await bcrypt.hash(dto.password, 10);
     const user = await this.prisma.user.create({
       data: {
@@ -37,15 +47,25 @@ export class AuthService {
         passwordHash,
         fullName: dto.fullName,
         phone: dto.phone,
+        role,
+        isActive: false,
+        isApproved: false,
       },
       select: { id: true, email: true, username: true, fullName: true, role: true },
     });
-    return { user, ...(await this.issueTokens(user.id, user.email, user.role)) };
+    await this.notifyReviewers(user.id, user.fullName, role);
+    return { user, pending: true as const };
   }
 
   async login(dto: LoginDto) {
     const user = await this.prisma.user.findUnique({ where: { email: dto.email } });
     if (!user) throw new UnauthorizedException('Invalid credentials');
+    // Pending approval reads differently from a locked account.
+    if (!user.isApproved) {
+      throw new UnauthorizedException(
+        'Tài khoản của bạn đang chờ giảng viên hoặc quản trị viên duyệt. Vui lòng quay lại sau.',
+      );
+    }
     if (!user.isActive) {
       throw new UnauthorizedException(
         'Tài khoản của bạn đã bị khóa. Vui lòng liên hệ quản trị viên.',
@@ -95,9 +115,11 @@ export class AuthService {
     // since the token was issued, and the old payload would happily carry the stale role.
     const user = await this.prisma.user.findUnique({
       where: { id: stored.userId },
-      select: { id: true, email: true, role: true, isActive: true },
+      select: { id: true, email: true, role: true, isActive: true, isApproved: true },
     });
-    if (!user || !user.isActive) throw new UnauthorizedException('Account is not active');
+    if (!user || !user.isActive || !user.isApproved) {
+      throw new UnauthorizedException('Account is not active');
+    }
 
     await this.prisma.refreshToken.update({
       where: { id: stored.id },
@@ -141,6 +163,35 @@ export class AuthService {
       where: { userId, revokedAt: null },
       data: { revokedAt: new Date() },
     });
+  }
+
+  /**
+   * Students are reviewed by lecturers and admins; lecturer registrations
+   * go to admins only. Best-effort fan-out: in-app + email.
+   */
+  private async notifyReviewers(userId: string, fullName: string, role: Role) {
+    const reviewerRoles =
+      role === Role.LECTURER ? [Role.SUPER_ADMIN] : [Role.LECTURER, Role.SUPER_ADMIN];
+    const reviewers = await this.prisma.user.findMany({
+      where: { role: { in: reviewerRoles }, isActive: true, id: { not: userId } },
+      select: { id: true },
+    });
+    if (!reviewers.length) return;
+    const roleVi = role === Role.LECTURER ? 'giảng viên' : 'sinh viên';
+    const title = `Tài khoản ${roleVi} mới chờ duyệt`;
+    const body = `${fullName} vừa đăng ký tài khoản ${roleVi} và đang chờ bạn phê duyệt.`;
+    await this.prisma.notification.createMany({
+      data: reviewers.map((reviewer) => ({
+        userId: reviewer.id,
+        title,
+        body,
+        type: 'USER_APPROVAL',
+        data: { userId, role },
+      })),
+    });
+    await Promise.all(
+      reviewers.map((reviewer) => this.email.sendToUser(reviewer.id, title, body).catch(() => undefined)),
+    );
   }
 
   private async issueTokens(userId: string, email: string, role: Role) {
