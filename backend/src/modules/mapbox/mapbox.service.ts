@@ -23,9 +23,38 @@ export type RouteGeometry = {
   source: 'MAPBOX' | 'STRAIGHT_LINE';
 };
 
+/**
+ * OSM institution names usually carry a "Trường" prefix users omit
+ * ("Trường Đại học Ngoại thương" vs "đại học ngoại thương"). Returns the
+ * expanded query, or null when no expansion applies.
+ */
+function expandInstitutionQuery(query: string): string | null {
+  const normalized = query.trim().toLowerCase();
+  if (normalized.startsWith('trường ') || normalized.startsWith('truong ')) return null;
+  const heads = [
+    'đại học',
+    'dai hoc',
+    'học viện',
+    'hoc vien',
+    'cao đẳng',
+    'cao dang',
+    'trung học',
+    'trung hoc',
+    'tiểu học',
+    'tieu hoc',
+    'mầm non',
+    'mam non',
+    'phổ thông',
+    'pho thong',
+  ];
+  if (heads.some((head) => normalized === head || normalized.startsWith(`${head} `))) {
+    return `trường ${query.trim()}`;
+  }
+  return null;
+}
+
 /** Compose "road, suburb, city, state, country" when display_name is absent. */
-function composeOsmAddress(address?: Record<string, string | undefined>): string {
-  return [
+function composeOsmAddress(address?: Record<string, string | undefined>): string {  return [
     address?.road,
     address?.suburb ?? address?.neighbourhood,
     address?.city ?? address?.town ?? address?.village ?? address?.county,
@@ -95,6 +124,10 @@ export class MapboxService {
    * Nominatim directly (referer blocks, 429s). Server-side we serialize
    * calls to respect the 1 req/s policy, identify with a User-Agent, and
    * cache per query for an hour. Never throws — callers fall back.
+   *
+   * OSM names institutions with a "Trường" prefix ("Trường Đại học Ngoại
+   * thương") that users omit, so when the raw query yields few hits we fire
+   * one expanded follow-up ("trường " + query) and merge.
    */
   async searchPlaces(query: string): Promise<OsmPlaceHit[]> {
     if (query.length < 2) return [];
@@ -102,41 +135,58 @@ export class MapboxService {
     const cached = this.nominatimCache.get(key);
     if (cached && Date.now() - cached.at < NOMINATIM_CACHE_TTL_MS) return cached.hits;
     try {
-      const wait = NOMINATIM_MIN_INTERVAL_MS - (Date.now() - this.nominatimLastCall);
-      if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
-      const url =
-        `${NOMINATIM_URL}?q=${encodeURIComponent(query)}` +
-        `&countrycodes=vn&format=jsonv2&addressdetails=1&limit=8&accept-language=vi`;
-      const res = await fetch(url, {
-        headers: {
-          Accept: 'application/json',
-          'User-Agent': 'VietJourney/1.0 (https://tourist-roan.vercel.app; contact admin@touristmap.local)',
-          Referer: 'https://tourist-roan.vercel.app/',
-        },
-      });
-      this.nominatimLastCall = Date.now();
-      if (!res.ok) return cached?.hits ?? [];
-      const rows = (await res.json()) as NominatimRow[];
-      const hits = (Array.isArray(rows) ? rows : [])
-        .filter((row) => row.lat != null && row.lon != null)
-        .map((row) => {
-          const address = row.display_name || composeOsmAddress(row.address);
-          return {
-            id: `osm-${row.place_id}`,
-            name:
-              row.name || (row.display_name ?? '').split(',')[0] || address.split(',')[0] || query,
-            address,
-            lng: Number(row.lon),
-            lat: Number(row.lat),
-          };
-        })
-        .filter((hit) => Number.isFinite(hit.lng) && Number.isFinite(hit.lat));
+      const hits = await this.fetchNominatim(query);
+      const expanded = expandInstitutionQuery(query);
+      if (hits.length < 4 && expanded) {
+        const extra = await this.fetchNominatim(expanded);
+        const seen = new Set(hits.map((hit) => hit.id));
+        for (const hit of extra) {
+          if (!seen.has(hit.id)) {
+            seen.add(hit.id);
+            hits.push(hit);
+          }
+          if (hits.length >= 10) break;
+        }
+      }
       this.nominatimCache.set(key, { at: Date.now(), hits });
       return hits;
     } catch (error) {
       this.logger.warn(`Nominatim search failed: ${(error as Error).message}`);
       return cached?.hits ?? [];
     }
+  }
+
+  /** Single throttled Nominatim call returning normalized hits (may be empty). */
+  private async fetchNominatim(query: string): Promise<OsmPlaceHit[]> {
+    const wait = NOMINATIM_MIN_INTERVAL_MS - (Date.now() - this.nominatimLastCall);
+    if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
+    const url =
+      `${NOMINATIM_URL}?q=${encodeURIComponent(query)}` +
+      `&countrycodes=vn&format=jsonv2&addressdetails=1&limit=8&accept-language=vi`;
+    const res = await fetch(url, {
+      headers: {
+        Accept: 'application/json',
+        'User-Agent': 'VietJourney/1.0 (https://tourist-roan.vercel.app; contact admin@touristmap.local)',
+        Referer: 'https://tourist-roan.vercel.app/',
+      },
+    });
+    this.nominatimLastCall = Date.now();
+    if (!res.ok) return [];
+    const rows = (await res.json()) as NominatimRow[];
+    return (Array.isArray(rows) ? rows : [])
+      .filter((row) => row.lat != null && row.lon != null)
+      .map((row) => {
+        const address = row.display_name || composeOsmAddress(row.address);
+        return {
+          id: `osm-${row.place_id}`,
+          name:
+            row.name || (row.display_name ?? '').split(',')[0] || address.split(',')[0] || query,
+          address,
+          lng: Number(row.lon),
+          lat: Number(row.lat),
+        };
+      })
+      .filter((hit) => Number.isFinite(hit.lng) && Number.isFinite(hit.lat));
   }
 
   directions(coordinates: [number, number][]) {
