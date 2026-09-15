@@ -5,14 +5,14 @@ import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { LayoutList } from "lucide-react";
 import mapboxgl from "mapbox-gl";
-import { MapView } from "@/components/map/map-view";
+import { MapView, useMap } from "@/components/map/map-view";
 import { ClickMarker } from "@/components/map/click-marker";
 import { MapLayers, type MarkerRating } from "@/components/map/map-layers";
 import { RouteLines } from "@/components/map/route-lines";
 import { HeatmapLayer } from "@/components/map/heatmap-layer";
 import { MapTopbar, type MapMode } from "@/components/map/interactive/map-topbar";
 import { SearchPin } from "@/components/map/search-pin";
-import { searchPlaces, type PlaceResult } from "@/lib/mapbox-geocode";
+import { searchPlaces, type PlaceResult, type SearchBias } from "@/lib/mapbox-geocode";
 import { useToast } from "@/components/ui/toast";
 import {
   LeftPanel,
@@ -195,6 +195,14 @@ export default function MapPage() {
   const [stopIds, setStopIds] = React.useState<string[]>([]);
   const [userPosition, setUserPosition] = React.useState<{ lng: number; lat: number } | null>(null);
   const [searchPin, setSearchPin] = React.useState<PlaceResult | null>(null);
+  // Viewport bias for place search (mirrors osm.org): viewbox for OSM,
+  // map center as proximity for Mapbox. Rounded so panning doesn't spam.
+  const [mapBias, setMapBias] = React.useState<SearchBias | null>(null);
+  const mapBiasKey = mapBias
+    ? `${mapBias.viewbox ?? ""}|${
+        mapBias.proximity ? `${mapBias.proximity.lng.toFixed(1)},${mapBias.proximity.lat.toFixed(1)}` : ""
+      }`
+    : "";
   const [dirOpen, setDirOpen] = React.useState(false);
   const [dirFrom, setDirFrom] = React.useState<DirPoint | null>(null);
   const [dirTo, setDirTo] = React.useState<DirPoint | null>(null);
@@ -447,8 +455,8 @@ export default function MapPage() {
 
   /** External place search (DB + OSM + Mapbox) for real-world addresses. */
   const placeSearch = useQuery({
-    queryKey: ["map", "place-search", deferredQ.trim().toLowerCase()],
-    queryFn: () => searchPlaces(deferredQ.trim()),
+    queryKey: ["map", "place-search", deferredQ.trim().toLowerCase(), mapBiasKey],
+    queryFn: () => searchPlaces(deferredQ.trim(), mapBias ?? undefined),
     enabled: mode === "public" && deferredQ.trim().length >= 2,
     staleTime: 60_000,
   });
@@ -496,6 +504,7 @@ export default function MapPage() {
   return (
     <div className="relative h-dvh overflow-hidden bg-slate-100">
       <MapView className="absolute inset-0" center={CENTER} zoom={ZOOM} onReady={handleMapReady}>
+        <ViewportTracker onChange={setMapBias} />
         <ClickMarker onDirections={openDirections} />
         <SearchPin place={searchPin} onDirections={openDirections} onClose={() => setSearchPin(null)} />
         <DirectionsLine
@@ -636,6 +645,38 @@ export default function MapPage() {
       ) : null}
     </div>
   );
+}
+
+/** Reports the map viewport (for search biasing) on every finished move. */
+function ViewportTracker({ onChange }: { onChange: (bias: SearchBias) => void }) {
+  const map = useMap();
+  const cbRef = React.useRef(onChange);
+  React.useEffect(() => {
+    cbRef.current = onChange;
+  }, [onChange ]);
+  React.useEffect(() => {
+    if (!map) return;
+    const report = () => {
+      try {
+        const b = map.getBounds();
+        const c = map.getCenter();
+        if (!b) return;
+        const r = (n: number) => Number(n.toFixed(2));
+        cbRef.current({
+          viewbox: `${r(b.getWest())},${r(b.getNorth())},${r(b.getEast())},${r(b.getSouth())}`,
+          proximity: { lng: r(c.lng), lat: r(c.lat) },
+        });
+      } catch {
+        /* map gone */
+      }
+    };
+    report();
+    map.on("moveend", report);
+    return () => {
+      map.off("moveend", report);
+    };
+  }, [map]);
+  return null;
 }
 
 /** Blue route-toggle button stacked with the map controls. */

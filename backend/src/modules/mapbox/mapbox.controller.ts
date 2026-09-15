@@ -40,8 +40,8 @@ export class MapboxController {
    * the frontend uses this instead of fetch-to-OSM.
    */
   @Get('search')
-  search(@Query('q') query: string) {
-    return this.mapboxService.searchPlaces(query?.trim() ?? '');
+  search(@Query('q') query: string, @Query('viewbox') viewbox?: string) {
+    return this.mapboxService.searchPlaces(query?.trim() ?? '', viewbox);
   }
 
   @Get('static-map')

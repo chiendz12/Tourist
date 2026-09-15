@@ -38,12 +38,27 @@ export interface PlaceResult {
   source: "VietJourney" | "OpenStreetMap" | "Mapbox";
 }
 
-async function searchMapbox(query: string, limit = 6): Promise<PlaceResult[]> {
+export interface SearchBias {
+  /** Nominatim viewbox "minLng,maxLat,maxLng,minLat" — biases toward the map view. */
+  viewbox?: string;
+  /** Mapbox proximity point — biases nearby results up. */
+  proximity?: { lng: number; lat: number };
+}
+
+async function searchMapbox(
+  query: string,
+  limit = 6,
+  bias?: SearchBias,
+): Promise<PlaceResult[]> {
   if (!NEXT_PUBLIC_MAPBOX_TOKEN) return [];
   try {
+    const proximity =
+      bias?.proximity && Number.isFinite(bias.proximity.lng) && Number.isFinite(bias.proximity.lat)
+        ? `&proximity=${bias.proximity.lng},${bias.proximity.lat}`
+        : "";
     const res = await fetch(
       `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query.trim())}.json` +
-        `?access_token=${encodeURIComponent(NEXT_PUBLIC_MAPBOX_TOKEN)}&language=vi&limit=${limit}&country=vn&bbox=102,8,110,24`,
+        `?access_token=${encodeURIComponent(NEXT_PUBLIC_MAPBOX_TOKEN)}&language=vi&limit=${limit}&country=vn&bbox=102,8,110,24${proximity}`,
     );
     if (!res.ok) return [];
     const body = (await res.json()) as {
@@ -64,17 +79,17 @@ async function searchMapbox(query: string, limit = 6): Promise<PlaceResult[]> {
   }
 }
 
-async function searchOsm(query: string): Promise<PlaceResult[]> {
+async function searchOsm(query: string, bias?: SearchBias): Promise<PlaceResult[]> {
   // Browser-direct first: the user's own IP is rarely throttled (unlike our
   // shared server egress, which Nominatim rate-limits). Backend proxy —
   // proper UA, serialized, cached — is the fallback for blocked browsers.
   const raw = query.trim();
-  const direct = await searchOsmDirect(raw);
+  const direct = await searchOsmDirect(raw, bias?.viewbox);
   // OSM names institutions with a "Trường" prefix users omit ("Trường Đại
   // học Ngoại thương"): one expanded follow-up when the raw query is thin.
   const expanded = expandInstitutionQuery(raw);
   if (direct.length < 4 && expanded) {
-    const extra = await searchOsmDirect(expanded);
+    const extra = await searchOsmDirect(expanded, bias?.viewbox);
     const seen = new Set(direct.map((d) => d.id));
     for (const hit of extra) {
       if (!seen.has(hit.id)) {
@@ -87,7 +102,7 @@ async function searchOsm(query: string): Promise<PlaceResult[]> {
   if (direct.length) return direct;
   try {
     const { geoApi } = await import("@/lib/api/services");
-    const hits = await geoApi.search(raw);
+    const hits = await geoApi.search(raw, bias?.viewbox);
     return (Array.isArray(hits) ? hits : [])
       .filter((h) => Number.isFinite(h.lng) && Number.isFinite(h.lat))
       .map((h) => ({
@@ -132,11 +147,12 @@ function expandInstitutionQuery(query: string): string | null {
   return null;
 }
 
-async function searchOsmDirect(query: string): Promise<PlaceResult[]> {
+async function searchOsmDirect(query: string, viewbox?: string): Promise<PlaceResult[]> {
   try {
+    const bias = viewbox ? `&viewbox=${encodeURIComponent(viewbox)}&bounded=0` : "";
     const res = await fetch(
       `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query.trim())}` +
-        `&countrycodes=vn&format=jsonv2&addressdetails=1&limit=5&accept-language=vi`,
+        `&countrycodes=vn&format=jsonv2&addressdetails=1&limit=8&accept-language=vi${bias}`,
       { headers: { Accept: "application/json" } },
     );
     if (!res.ok) return [];
@@ -215,28 +231,27 @@ async function searchLocal(query: string): Promise<PlaceResult[]> {
  * runs on Mapbox only, which tolerates parallelism. Everything merges with
  * provenance-aware dedupe, cap 10.
  */
-export async function searchPlaces(query: string): Promise<PlaceResult[]> {
+export async function searchPlaces(query: string, bias?: SearchBias): Promise<PlaceResult[]> {
   if (query.trim().length < 2) return [];
   const raw = query.trim();
   const stripped = stripGenericPrefix(raw);
   const jobs: Array<Promise<PlaceResult[]>> = [
     searchLocal(raw),
-    searchOsm(raw),
-    searchMapbox(raw, 8),
+    searchOsm(raw, bias),
+    searchMapbox(raw, 8, bias),
   ];
-  if (stripped.length >= 2 && stripped !== raw) jobs.push(searchMapbox(stripped, 6));
+  if (stripped.length >= 2 && stripped !== raw) jobs.push(searchMapbox(stripped, 6, bias));
   const settled = await Promise.all(jobs);
   const seen = new Set<string>();
-  const out: PlaceResult[] = [];
-  // Local hits first, then everything else in provider order.
+  const pooled: PlaceResult[] = [];
   for (const r of settled.flat()) {
     const key = `${r.name.toLowerCase()}|${r.lng.toFixed(3)},${r.lat.toFixed(3)}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    out.push(r);
-    if (out.length >= 10) break;
+    pooled.push(r);
   }
-  return out;
+  // Best textual matches first so real academies outrank fuzzy noise.
+  return rankPlaces(pooled, raw).slice(0, 10);
 }
 
 /** Single-word Vietnamese generics ignored when judging a close match. */
@@ -265,21 +280,45 @@ function stripGenericPrefix(value: string): string {
   return value.replace(GENERIC_PREFIX, "").trim();
 }
 
+function significantWords(query: string): string[] {
+  return query
+    .toLowerCase()
+    .split(/\s+/)
+    .map((w) => w.trim())
+    .filter((w) => w.length > 1 && !GENERIC_WORDS.has(w) && !GENERIC_WORDS.has(stripAccents(w)));
+}
+
+function matchScore(r: PlaceResult, queryLower: string, words: string[]): number {
+  const name = r.name.toLowerCase();
+  if (name.includes(queryLower)) return 2;
+  if (words.length === 0) return 1;
+  const hay = `${r.name} ${r.address}`.toLowerCase();
+  return words.every((w) => hay.includes(w) || hay.includes(stripAccents(w))) ? 1 : 0;
+}
+
+/**
+ * Best textual matches first (stable — ties keep provider order, so local
+ * curated hits still lead among equals). Full-phrase name containment wins,
+ * then all-significant-words coverage, then the rest.
+ */
+export function rankPlaces(results: PlaceResult[], query: string): PlaceResult[] {
+  const queryLower = query.trim().toLowerCase();
+  const words = significantWords(query);
+  return results
+    .map((r, i) => ({ r, i }))
+    .sort((a, b) => matchScore(b.r, queryLower, words) - matchScore(a.r, queryLower, words) || a.i - b.i)
+    .map((x) => x.r);
+}
+
 /**
  * True when some result's name covers every significant query word —
  * used to decide whether to suggest adding district/province detail.
  */
 export function hasCloseMatch(results: PlaceResult[], query: string): boolean {
-  const words = query
-    .toLowerCase()
-    .split(/\s+/)
-    .map((w) => w.trim())
-    .filter((w) => w.length > 1 && !GENERIC_WORDS.has(w) && !GENERIC_WORDS.has(stripAccents(w)));
+  const words = significantWords(query);
   if (words.length === 0) return true;
-  return results.some((r) => {
-    const hay = `${r.name} ${r.address}`.toLowerCase();
-    return words.every((w) => hay.includes(w) || hay.includes(stripAccents(w)));
-  });
+  const queryLower = query.trim().toLowerCase();
+  return results.some((r) => matchScore(r, queryLower, words) >= 1);
 }
 
 function contextText(ctx: ReverseContext[] | undefined, ...prefixes: string[]): string | undefined {

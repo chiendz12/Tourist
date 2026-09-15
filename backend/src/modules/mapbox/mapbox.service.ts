@@ -129,13 +129,13 @@ export class MapboxService {
    * thương") that users omit, so when the raw query yields few hits we fire
    * one expanded follow-up ("trường " + query) and merge.
    */
-  async searchPlaces(query: string): Promise<OsmPlaceHit[]> {
+  async searchPlaces(query: string, viewbox?: string): Promise<OsmPlaceHit[]> {
     if (query.length < 2) return [];
-    const key = query.toLowerCase();
+    const key = `${query.toLowerCase()}|${viewbox ?? ''}`;
     const cached = this.nominatimCache.get(key);
     if (cached && Date.now() - cached.at < NOMINATIM_CACHE_TTL_MS) return cached.hits;
     try {
-      const hits = await this.fetchNominatim(query);
+      const hits = await this.fetchNominatim(query, viewbox);
       const expanded = expandInstitutionQuery(query);
       if (hits.length < 4 && expanded) {
         const extra = await this.fetchNominatim(expanded);
@@ -157,12 +157,13 @@ export class MapboxService {
   }
 
   /** Single throttled Nominatim call returning normalized hits (may be empty). */
-  private async fetchNominatim(query: string): Promise<OsmPlaceHit[]> {
+  private async fetchNominatim(query: string, viewbox?: string): Promise<OsmPlaceHit[]> {
     const wait = NOMINATIM_MIN_INTERVAL_MS - (Date.now() - this.nominatimLastCall);
     if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
+    const bias = viewbox ? `&viewbox=${encodeURIComponent(viewbox)}&bounded=0` : '';
     const url =
       `${NOMINATIM_URL}?q=${encodeURIComponent(query)}` +
-      `&countrycodes=vn&format=jsonv2&addressdetails=1&limit=8&accept-language=vi`;
+      `&countrycodes=vn&format=jsonv2&addressdetails=1&limit=8&accept-language=vi${bias}`;
     const res = await fetch(url, {
       headers: {
         Accept: 'application/json',
