@@ -65,27 +65,71 @@ async function searchMapbox(query: string, limit = 6): Promise<PlaceResult[]> {
 }
 
 async function searchOsm(query: string): Promise<PlaceResult[]> {
-  // Backend proxy first: it identifies with a proper User-Agent, serializes
-  // to Nominatim's 1 req/s policy and caches. Direct browser calls get
-  // blocked or 429-throttled, which previously wiped out all OSM hits.
+  // Browser-direct first: the user's own IP is rarely throttled (unlike our
+  // shared server egress, which Nominatim rate-limits). Backend proxy —
+  // proper UA, serialized, cached — is the fallback for blocked browsers.
+  const raw = query.trim();
+  const direct = await searchOsmDirect(raw);
+  // OSM names institutions with a "Trường" prefix users omit ("Trường Đại
+  // học Ngoại thương"): one expanded follow-up when the raw query is thin.
+  const expanded = expandInstitutionQuery(raw);
+  if (direct.length < 4 && expanded) {
+    const extra = await searchOsmDirect(expanded);
+    const seen = new Set(direct.map((d) => d.id));
+    for (const hit of extra) {
+      if (!seen.has(hit.id)) {
+        seen.add(hit.id);
+        direct.push(hit);
+      }
+      if (direct.length >= 10) break;
+    }
+  }
+  if (direct.length) return direct;
   try {
     const { geoApi } = await import("@/lib/api/services");
-    const hits = await geoApi.search(query.trim());
-    const mapped = (Array.isArray(hits) ? hits : [])
+    const hits = await geoApi.search(raw);
+    return (Array.isArray(hits) ? hits : [])
       .filter((h) => Number.isFinite(h.lng) && Number.isFinite(h.lat))
       .map((h) => ({
         id: h.id.startsWith("osm-") ? h.id : `osm-${h.id}`,
-        name: h.name || query.trim(),
+        name: h.name || raw,
         address: h.address || "",
         lng: Number(h.lng),
         lat: Number(h.lat),
         source: "OpenStreetMap" as const,
       }));
-    if (mapped.length) return mapped;
   } catch {
-    /* fall through to direct call */
+    return [];
   }
-  return searchOsmDirect(query);
+}
+
+/**
+ * Mirror of the backend expansion: OSM institution names usually carry a
+ * "Trường" prefix users omit.
+ */
+function expandInstitutionQuery(query: string): string | null {
+  const normalized = query.trim().toLowerCase();
+  if (normalized.startsWith("trường ") || normalized.startsWith("truong ")) return null;
+  const heads = [
+    "đại học",
+    "dai hoc",
+    "học viện",
+    "hoc vien",
+    "cao đẳng",
+    "cao dang",
+    "trung học",
+    "trung hoc",
+    "tiểu học",
+    "tieu hoc",
+    "mầm non",
+    "mam non",
+    "phổ thông",
+    "pho thong",
+  ];
+  if (heads.some((head) => normalized === head || normalized.startsWith(`${head} `))) {
+    return `trường ${query.trim()}`;
+  }
+  return null;
 }
 
 async function searchOsmDirect(query: string): Promise<PlaceResult[]> {
