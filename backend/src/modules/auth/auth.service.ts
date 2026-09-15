@@ -27,9 +27,10 @@ export class AuthService {
   ) {}
 
   /**
-   * Self-registration (students + lecturers only). Accounts start inactive
-   * AND unapproved: a lecturer (students) or an admin must approve before
-   * first sign-in, so no tokens are issued here.
+   * Self-registration. Members are active immediately (original behavior);
+   * students and lecturers start inactive AND unapproved — a lecturer
+   * (students) or an admin must approve before first sign-in, so no tokens
+   * are issued for them.
    */
   async register(dto: RegisterDto) {
     const exists = await this.prisma.user.findFirst({
@@ -40,6 +41,22 @@ export class AuthService {
       ? dto.role
       : Role.STUDENT;
     const passwordHash = await bcrypt.hash(dto.password, 10);
+    if (role === Role.MEMBER) {
+      const user = await this.prisma.user.create({
+        data: {
+          email: dto.email,
+          username: dto.username,
+          passwordHash,
+          fullName: dto.fullName,
+          phone: dto.phone,
+          role,
+          isActive: true,
+          isApproved: true,
+        },
+        select: { id: true, email: true, username: true, fullName: true, role: true },
+      });
+      return { user, ...(await this.issueTokens(user.id, user.email, user.role)) };
+    }
     const user = await this.prisma.user.create({
       data: {
         email: dto.email,

@@ -2,8 +2,8 @@ import { ApiProperty } from '@nestjs/swagger';
 import { IsEmail, IsIn, IsOptional, IsString, MinLength } from 'class-validator';
 import { Role } from '@prisma/client';
 
-/** Public self-registration is limited to students and lecturers. */
-export const REGISTERABLE_ROLES = [Role.STUDENT, Role.LECTURER] as const;
+/** Public self-registration: members are instant, students/lecturers need approval. */
+export const REGISTERABLE_ROLES = [Role.STUDENT, Role.LECTURER, Role.MEMBER] as const;
 
 export class RegisterDto {
   @ApiProperty() @IsEmail() email!: string;

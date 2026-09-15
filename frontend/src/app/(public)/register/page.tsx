@@ -11,7 +11,7 @@ export default function RegisterPage() {
   const router = useRouter();
   const [submitting, setSubmitting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
-  const [role, setRole] = React.useState<"STUDENT" | "LECTURER">("STUDENT");
+  const [role, setRole] = React.useState<"STUDENT" | "LECTURER" | "MEMBER">("STUDENT");
   const [pending, setPending] = React.useState(false);
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -106,11 +106,12 @@ export default function RegisterPage() {
           <form className="space-y-3" onSubmit={onSubmit}>
             <div>
               <Label>Bạn đăng ký với vai trò</Label>
-              <div className="mt-1.5 grid grid-cols-2 gap-2" role="radiogroup" aria-label="Vai trò">
+              <div className="mt-1.5 grid grid-cols-3 gap-2" role="radiogroup" aria-label="Vai trò">
                 {(
                   [
-                    { value: "STUDENT", label: "Sinh viên", sub: "GV hoặc admin duyệt" },
-                    { value: "LECTURER", label: "Giảng viên", sub: "Chỉ admin duyệt" },
+                    { value: "STUDENT", label: "Sinh viên" },
+                    { value: "LECTURER", label: "Giảng viên" },
+                    { value: "MEMBER", label: "Thành viên" },
                   ] as const
                 ).map((opt) => (
                   <button
@@ -121,12 +122,11 @@ export default function RegisterPage() {
                     onClick={() => setRole(opt.value)}
                     className={
                       role === opt.value
-                        ? "rounded-xl border-2 border-[#1d4ed8] bg-[#1d4ed8]/5 px-3 py-2.5 text-left transition"
-                        : "rounded-xl border border-slate-200 px-3 py-2.5 text-left transition hover:border-slate-300"
+                        ? "rounded-xl border-2 border-[#1d4ed8] bg-[#1d4ed8]/5 px-2 py-2.5 text-center transition"
+                        : "rounded-xl border border-slate-200 px-2 py-2.5 text-center transition hover:border-slate-300"
                     }
                   >
                     <span className="block text-sm font-bold text-slate-900">{opt.label}</span>
-                    <span className="block text-xs text-slate-500">{opt.sub}</span>
                   </button>
                 ))}
               </div>
