@@ -114,8 +114,6 @@ export default async function LecturerPage({
     .slice(0, 8);
   const maxProvince = topProvinces[0]?.count ?? 1;
 
-  const unread = (notifications.data ?? []).filter((n) => !n.readAt).length;
-
   return (
     <DashboardShell
       user={me}
@@ -124,7 +122,6 @@ export default async function LecturerPage({
       title="Tổng quan lớp học"
       subtitle="Học phần: QTDL & Lữ hành"
       searchPlaceholder="Tìm kiếm trong hàng đợi duyệt…"
-      unread={unread}
     >
       <div className="flex flex-wrap items-center justify-end gap-2">
         <ExportButton

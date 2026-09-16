@@ -114,7 +114,6 @@ export default async function AdminPage({
       title="Tổng quan hệ thống"
       subtitle="Toàn bộ hệ thống VietJourney"
       searchPlaceholder="Tìm kiếm người dùng…"
-      unread={unread}
     >
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
         <StatCard

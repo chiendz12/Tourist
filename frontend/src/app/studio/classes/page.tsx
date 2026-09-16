@@ -3,7 +3,6 @@ import { BookOpen, MapPin, Users } from "lucide-react";
 import {
   authApi,
   classesApi,
-  notificationsApi,
 } from "@/lib/api/services";
 import { DashboardShell } from "@/components/studio/dashboard-shell";
 import { StatCard } from "@/components/studio/widgets";
@@ -29,9 +28,8 @@ export default async function ClassesPage({
   if (!me) redirect("/login?next=/studio/classes");
 
   const q = ((await searchParams)?.q ?? "").trim().toLowerCase();
-  const [classes, notifications] = await Promise.all([
+  const [classes] = await Promise.all([
     classesApi.list().catch(() => []),
-    notificationsApi.list({ limit: 10 }).catch(() => ({ data: [], meta: null as never })),
   ]);
 
   const visible = q
@@ -54,7 +52,6 @@ export default async function ClassesPage({
       title="Quản lý lớp & nhóm"
       subtitle={`${classes.length} lớp · ${students} thành viên · ${provinceSet.size} tỉnh phụ trách`}
       searchPlaceholder="Tìm lớp, mã lớp, học phần, tỉnh…"
-      unread={(notifications.data ?? []).filter((n) => !n.readAt).length}
     >
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
