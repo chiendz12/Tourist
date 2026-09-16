@@ -68,7 +68,7 @@ export default async function AdminPage({
   const role = (params.role ?? "all").toUpperCase();
   const roleFilter = (ROLE_TABS as readonly string[]).includes(role) && role !== "all" ? role : undefined;
 
-  const [overviewTimed, users, pending, audit, provinces, published, notifications] = await Promise.all([
+  const [overviewTimed, users, pending, audit, provinces, published] = await Promise.all([
     timed(() => adminApi.overview().catch(() => null)),
     adminApi
       .users({ limit: 12, ...(q ? { q } : {}), ...(roleFilter ? { role: roleFilter } : {}) })
@@ -79,7 +79,6 @@ export default async function AdminPage({
     destinationsApi
       .bbox({ minLng: 100, minLat: 8, maxLng: 112, maxLat: 24, limit: 500 })
       .catch(() => []),
-    notificationsApi.list({ limit: 10 }).catch(() => ({ data: [], meta: null as never })),
   ]);
   const overview = overviewTimed.value;
   const latencyMs = overviewTimed.ms;
@@ -104,7 +103,6 @@ export default async function AdminPage({
   const top = ranked.slice(0, 5);
   const maxCount = top[0]?.count ?? 1;
 
-  const unread = (notifications.data ?? []).filter((n) => !n.readAt).length;
   const auditItems = audit.data ?? [];
   const pendingUsers = pending.data ?? [];
 

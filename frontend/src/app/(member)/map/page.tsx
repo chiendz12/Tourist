@@ -34,7 +34,6 @@ import { Tray } from "@/components/map/interactive/tray";
 import {
   destinationsApi,
   favoritesApi,
-  notificationsApi,
   provincesApi,
   ratingsApi,
   routesApi,
@@ -259,11 +258,6 @@ export default function MapPage() {
     queryFn: () => favoritesApi.list(),
     enabled: !!user,
   });
-  const notifications = useQuery({
-    queryKey: ["notifications", "unread-count"],
-    queryFn: () => notificationsApi.list({ limit: 20 }),
-    enabled: !!user,
-  });
 
   // In-app directions: destination comes from a marker/modal/pin click,
   // origin defaults to the user's location when known.
@@ -409,10 +403,6 @@ export default function MapPage() {
       });
     })();
   }, [stopIds, markers]); // eslint-disable-line react-hooks/exhaustive-deps
-  const unread = React.useMemo(
-    () => (notifications.data?.data ?? []).filter((n) => !n.readAt).length,
-    [notifications.data],
-  );
   const activeFilterCount =
     provinceIds.length +
     (category !== "all" ? 1 : 0) +
@@ -538,7 +528,6 @@ export default function MapPage() {
         onSubmitSearch={submitSearch}
         filtersOpen={filtersOpen}
         onToggleFilters={() => setFiltersOpen((v) => !v)}
-        unread={unread}
         mode={mode}
         onMode={setMode}
         searchResults={mode === "public" ? placeResults : []}

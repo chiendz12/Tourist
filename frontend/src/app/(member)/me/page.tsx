@@ -3,7 +3,6 @@ import Image from "next/image";
 import Link from "next/link";
 import {
   ArrowRight,
-  Bell,
   Bot,
   CalendarDays,
   ChevronDown,
@@ -24,7 +23,6 @@ import {
   destinationsApi,
   favoritesApi,
   itinerariesApi,
-  notificationsApi,
   ratingsApi,
   toursApi,
 } from "@/lib/api/services";
@@ -39,6 +37,7 @@ import { ClickMarker } from "@/components/map/click-marker";
 import { MapLayers } from "@/components/map/map-layers";
 import { Stars } from "@/components/shared/stars";
 import { MemberSidebar } from "@/components/member/sidebar";
+import { NotificationsDropdown } from "@/components/notifications/dropdown";
 import { SaveButton } from "@/components/member/save-button";
 import { TripMenu } from "@/components/member/trip-menu";
 import { firstStopId, formatTripDate } from "@/components/itinerary/types";
@@ -99,11 +98,10 @@ export default async function MePage({
   const tab: MeTab =
     params.tab === "done" || params.tab === "wishlist" ? params.tab : "planning";
 
-  const [user, tripsRaw, favorites, notifications, browse, tourList] = await Promise.all([
+  const [user, tripsRaw, favorites, browse, tourList] = await Promise.all([
     authApi.me().catch(() => null),
     itinerariesApi.mine().catch(() => []),
     favoritesApi.list().catch(() => []),
-    notificationsApi.list({ limit: 20 }).catch(() => ({ data: [], meta: null as never })),
     destinationsApi.list({ limit: 8 }).catch(() => ({ data: [], meta: null as never })),
     toursApi.list({ limit: 4 }).catch(() => ({ data: [], meta: null as never })),
   ]);
@@ -148,7 +146,6 @@ export default async function MePage({
   const favIds = new Set(favorites.map((f) => f.destinationId));
   const totalStops = tripStats.reduce((s, t) => s + t.stops, 0);
   const totalDays = tripStats.reduce((s, t) => s + t.days, 0);
-  const unread = (notifications.data ?? []).filter((n) => !n.readAt).length;
   const featured = tripsRaw[0] ? (enriched.get(tripsRaw[0].id) ?? null) : null;
 
   // Suggestions: top-rated browsed destinations + first tour.
@@ -186,18 +183,7 @@ export default async function MePage({
             </p>
           </div>
           <div className="flex items-center gap-2.5">
-            <Link
-              href="/notifications"
-              aria-label="Thông báo"
-              className="relative grid size-10 place-items-center rounded-xl border border-slate-200 bg-white text-slate-500 shadow-sm transition hover:text-slate-900"
-            >
-              <Bell className="size-5" />
-              {unread > 0 ? (
-                <span className="absolute -right-1 -top-1 grid size-5 min-w-5 place-items-center rounded-full bg-rose-500 px-1 text-[10px] font-bold text-white">
-                  {unread > 9 ? "9+" : unread}
-                </span>
-              ) : null}
-            </Link>
+            <NotificationsDropdown buttonClassName="relative grid size-10 place-items-center rounded-xl border border-slate-200 bg-white text-slate-500 shadow-sm transition hover:text-slate-900" />
             <Link href="/itinerary/new" className={buttonClass()}>
               <Plus className="size-4" />
               Tạo lộ trình mới

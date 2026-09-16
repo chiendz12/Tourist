@@ -3,7 +3,6 @@
 import * as React from "react";
 import Link from "next/link";
 import {
-  Bell,
   ChevronDown,
   LayoutDashboard,
   LogOut,
@@ -15,6 +14,7 @@ import {
 } from "lucide-react";
 import { useSession } from "@/lib/auth/session";
 import { hasCloseMatch, type PlaceResult } from "@/lib/mapbox-geocode";
+import { NotificationsDropdown } from "@/components/notifications/dropdown";
 import { classNames } from "@/lib/utils";
 import { buttonClass } from "@/components/ui/button";
 
@@ -39,7 +39,6 @@ interface MapTopbarProps {
   onSubmitSearch: () => void;
   filtersOpen: boolean;
   onToggleFilters: () => void;
-  unread: number;
   mode: MapMode;
   onMode: (mode: MapMode) => void;
   /** External place suggestions (DB + OSM + Mapbox) for the search box. */
@@ -58,7 +57,6 @@ export function MapTopbar({
   onSubmitSearch,
   filtersOpen,
   onToggleFilters,
-  unread,
   mode,
   onMode,
   searchResults = [],
@@ -199,18 +197,10 @@ export function MapTopbar({
         Xây dựng lộ trình
       </Link>
 
-      <Link
-        href="/notifications"
-        className="pointer-events-auto relative grid size-10 shrink-0 place-items-center rounded-xl bg-white/95 text-slate-600 shadow-lg ring-1 ring-slate-900/5 backdrop-blur transition hover:text-slate-900"
-        aria-label="Thông báo"
-      >
-        <Bell className="size-5" />
-        {unread > 0 ? (
-          <span className="absolute -right-1 -top-1 grid size-5 min-w-5 place-items-center rounded-full bg-rose-500 px-1 text-[10px] font-bold text-white">
-            {unread > 9 ? "9+" : unread}
-          </span>
-        ) : null}
-      </Link>
+      <NotificationsDropdown
+        buttonClassName="pointer-events-auto relative grid size-10 shrink-0 place-items-center rounded-xl bg-white/95 text-slate-600 shadow-lg ring-1 ring-slate-900/5 backdrop-blur transition hover:text-slate-900"
+        wrapperClassName="pointer-events-auto relative shrink-0"
+      />
 
       <div className="pointer-events-auto relative shrink-0">
         <button

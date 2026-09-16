@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import type { CurrentUser } from "@/lib/api/types";
 import { useSession } from "@/lib/auth/session";
+import { NotificationsDropdown } from "@/components/notifications/dropdown";
 import { classNames } from "@/lib/utils";
 
 const ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -60,7 +61,6 @@ interface DashboardShellProps {
   title: string;
   subtitle: string;
   searchPlaceholder: string;
-  unread: number;
   children: React.ReactNode;
 }
 
@@ -75,7 +75,6 @@ export function DashboardShell({
   title,
   subtitle,
   searchPlaceholder,
-  unread,
   children,
 }: DashboardShellProps) {
   const pathname = usePathname();
@@ -181,18 +180,7 @@ export function DashboardShell({
               className="h-10 min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-slate-400"
             />
           </form>
-          <Link
-            href="/notifications"
-            aria-label="Thông báo"
-            className="relative grid size-10 shrink-0 place-items-center rounded-xl border border-slate-200 bg-white text-slate-500 shadow-sm transition hover:text-slate-900"
-          >
-            <Bell className="size-5" />
-            {unread > 0 ? (
-              <span className="absolute -right-1 -top-1 grid size-5 min-w-5 place-items-center rounded-full bg-rose-500 px-1 text-[10px] font-bold text-white">
-                {unread > 9 ? "9+" : unread}
-              </span>
-            ) : null}
-          </Link>
+          <NotificationsDropdown buttonClassName="relative grid size-10 shrink-0 place-items-center rounded-xl border border-slate-200 bg-white text-slate-500 shadow-sm transition hover:text-slate-900" />
           <div className="relative shrink-0">
             <button
               type="button"

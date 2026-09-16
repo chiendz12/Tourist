@@ -4,7 +4,6 @@ import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  Bell,
   Bold,
   CalendarDays,
   Database,
@@ -31,7 +30,6 @@ import {
   approvalsApi,
   authApi,
   destinationsApi,
-  notificationsApi,
 } from "@/lib/api/services";
 import type {
   CurrentUser,
@@ -43,6 +41,7 @@ import { classNames } from "@/lib/utils";
 import { buttonClass } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
 import { EntryMap } from "@/components/studio/entry-map";
+import { NotificationsDropdown } from "@/components/notifications/dropdown";
 
 type EntryTab = "basic" | "media" | "practical" | "seo";
 
@@ -188,12 +187,6 @@ export function EntryForm({ user, provinces, initial }: EntryFormProps) {
   const [savedAt, setSavedAt] = React.useState<string | null>(
     initial ? new Date(initial.updatedAt).toLocaleTimeString("vi-VN") : null,
   );
-
-  const unread = useQuery({
-    queryKey: ["notifications", "unread-count"],
-    queryFn: () => notificationsApi.list({ limit: 20 }),
-  }).data;
-  const unreadCount = (unread?.data ?? []).filter((n) => !n.readAt).length;
 
   // Provinces this account may enter data for. Null = unscoped role (or
   // failed fetch) → the full list; otherwise restricted to assignments.
@@ -451,13 +444,6 @@ export function EntryForm({ user, provinces, initial }: EntryFormProps) {
           <RailLink href="/studio/enter" icon={<Pencil className="size-5" />} label="Nhập dữ liệu" collapsed={collapsed} active />
           <RailLink href="/studio/mine" icon={<User className="size-5" />} label="Dữ liệu của tôi" collapsed={collapsed} />
           <RailLink href="/me?tab=wishlist" icon={<Heart className="size-5" />} label="Yêu thích" collapsed={collapsed} />
-          <RailLink
-            href="/notifications"
-            icon={<Bell className="size-5" />}
-            label="Thông báo"
-            collapsed={collapsed}
-            badge={unreadCount > 0 ? String(Math.min(unreadCount, 9)) : undefined}
-          />
           <span
             title="Sắp hỗ trợ"
             className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-slate-400"
@@ -537,6 +523,7 @@ export function EntryForm({ user, provinces, initial }: EntryFormProps) {
             })}
           </ol>
           <div className="flex items-center gap-2">
+            <NotificationsDropdown buttonClassName="relative grid size-9 shrink-0 place-items-center rounded-xl border border-slate-200 bg-white text-slate-500 shadow-sm transition hover:text-slate-900" />
             {savedId ? (
               <Link
                 href={`/destinations/${savedId}`}

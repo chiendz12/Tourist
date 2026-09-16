@@ -324,9 +324,6 @@ export default async function LecturerPage({
         <section className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-900/5">
           <div className="flex items-center justify-between">
             <h2 className="text-base font-bold text-slate-900">Hoạt động gần đây</h2>
-            <Link href="/notifications" className="text-xs font-bold text-[#1d4ed8] hover:underline">
-              Xem tất cả
-            </Link>
           </div>
           {(notifications.data ?? []).length === 0 ? (
             <p className="mt-3 rounded-xl bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">

@@ -3,12 +3,11 @@
 import * as React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useQuery } from "@tanstack/react-query";
-import { Bell, ChevronDown, LayoutDashboard, LogOut, MapPin, Search } from "lucide-react";
+import { ChevronDown, LayoutDashboard, LogOut, MapPin, Search } from "lucide-react";
 import { classNames } from "@/lib/utils";
 import { buttonClass } from "@/components/ui/button";
 import { useSession } from "@/lib/auth/session";
-import { notificationsApi } from "@/lib/api/services";
+import { NotificationsDropdown } from "@/components/notifications/dropdown";
 
 const NAV = [
   { href: "/", label: "Khám phá" },
@@ -64,13 +63,6 @@ export function SiteHeader() {
   const pathname = usePathname();
   const { user, isAuthenticated, refresh } = useSession();
   const [open, setOpen] = React.useState(false);
-  const unreadQuery = useQuery({
-    queryKey: ["notifications", "unread-count"],
-    queryFn: () => notificationsApi.list({ limit: 20 }),
-    enabled: isAuthenticated,
-    staleTime: 60_000,
-  });
-  const unread = (unreadQuery.data?.data ?? []).filter((n) => !n.readAt).length;
 
   const logout = async () => {
     setOpen(false);
@@ -167,20 +159,13 @@ export function SiteHeader() {
           >
             Xây dựng lộ trình
           </Link>
-          {isAuthenticated && user ? (
+            {isAuthenticated && user ? (
             <>
-              <Link
-                href="/notifications"
-                aria-label="Thông báo"
-                className="relative grid size-9 shrink-0 place-items-center rounded-full bg-slate-100 text-slate-600 transition-colors hover:bg-slate-200"
-              >
-                <Bell className="size-4" />
-                {unread > 0 ? (
-                  <span className="absolute -right-0.5 -top-0.5 grid size-4 min-w-4 place-items-center rounded-full bg-rose-500 px-0.5 text-[9px] font-bold text-white">
-                    {unread > 9 ? "9+" : unread}
-                  </span>
-                ) : null}
-              </Link>
+              <NotificationsDropdown
+                buttonClassName="relative grid size-9 shrink-0 place-items-center rounded-full bg-slate-100 text-slate-600 transition-colors hover:bg-slate-200"
+                iconClassName="size-4"
+                badgeClassName="absolute -right-0.5 -top-0.5 grid size-4 min-w-4 place-items-center rounded-full bg-rose-500 px-0.5 text-[9px] font-bold text-white"
+              />
               <div className="relative shrink-0">
                 <button
                   type="button"

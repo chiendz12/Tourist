@@ -7,7 +7,6 @@ import { useMutation } from "@tanstack/react-query";
 import {
   ArrowRight,
   BarChart3,
-  Bell,
   Check,
   CheckSquare,
   ChevronDown,
@@ -39,13 +38,13 @@ import { buttonClass } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
 import { ExportButton } from "@/components/studio/widgets";
 import { ApprovalDetailInline } from "@/components/studio/approval-detail";
+import { NotificationsDropdown } from "@/components/notifications/dropdown";
 
 type ViewMode = "kanban" | "list";
 type SortMode = "new" | "old" | "name";
 
 interface ApprovalBoardProps {
   user: CurrentUser;
-  unread: number;
   items: ApprovalRecord[];
   summary: { total: number; pending: number; byStatus: Record<string, number> };
   provinces: Province[];
@@ -82,7 +81,7 @@ const COLUMNS: Array<{
  * Approval workflow board: rail, stats, toolbar, kanban columns and the
  * detail panel. Review actions hit the real PATCH review endpoint.
  */
-export function ApprovalBoard({ user, unread, items, summary, provinces }: ApprovalBoardProps) {
+export function ApprovalBoard({ user, items, summary, provinces }: ApprovalBoardProps) {
   const router = useRouter();
   const { toast } = useToast();
   const [q, setQ] = React.useState("");
@@ -360,14 +359,11 @@ export function ApprovalBoard({ user, unread, items, summary, provinces }: Appro
             }))}
             label="Báo cáo thống kê"
           />
-          <Link href="/notifications" aria-label="Thông báo" className="relative grid size-9 shrink-0 place-items-center rounded-xl border border-slate-200 text-slate-500 transition hover:text-slate-900">
-            <Bell className="size-4" />
-            {unread > 0 ? (
-              <span className="absolute -right-1 -top-1 grid size-4 min-w-4 place-items-center rounded-full bg-rose-500 px-0.5 text-[9px] font-bold text-white">
-                {unread > 9 ? "9+" : unread}
-              </span>
-            ) : null}
-          </Link>
+          <NotificationsDropdown
+            buttonClassName="relative grid size-9 shrink-0 place-items-center rounded-xl border border-slate-200 text-slate-500 transition hover:text-slate-900"
+            iconClassName="size-4"
+            badgeClassName="absolute -right-1 -top-1 grid size-4 min-w-4 place-items-center rounded-full bg-rose-500 px-0.5 text-[9px] font-bold text-white"
+          />
           <div className="relative hidden shrink-0 md:block">
             <button
               type="button"

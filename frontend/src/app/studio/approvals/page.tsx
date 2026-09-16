@@ -2,7 +2,6 @@ import { redirect } from "next/navigation";
 import {
   approvalsApi,
   authApi,
-  notificationsApi,
   provincesApi,
 } from "@/lib/api/services";
 import { ApprovalBoard } from "@/components/studio/approval-board";
@@ -18,7 +17,7 @@ export default async function ApprovalsPage() {
     redirect("/studio");
   }
 
-  const [queue, summary, provinces, notifications] = await Promise.all([
+  const [queue, summary, provinces] = await Promise.all([
     approvalsApi.queue({ limit: 100 }).catch(() => ({ data: [], meta: null as never })),
     approvalsApi
       .summary()
@@ -28,13 +27,11 @@ export default async function ApprovalsPage() {
         byStatus: {},
       })),
     provincesApi.list().catch(() => []),
-    notificationsApi.list({ limit: 10 }).catch(() => ({ data: [], meta: null as never })),
   ]);
 
   return (
     <ApprovalBoard
       user={me}
-      unread={(notifications.data ?? []).filter((n) => !n.readAt).length}
       items={queue.data ?? []}
       summary={summary}
       provinces={provinces}
