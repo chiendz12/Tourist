@@ -224,6 +224,13 @@ export interface Notification {
   title: string;
   body: string;
   type: string;
+  data?: {
+    entityType?: string;
+    entityId?: string;
+    status?: string;
+    userId?: string;
+    role?: string;
+  } | null;
   readAt?: string | null;
   createdAt: string;
 }

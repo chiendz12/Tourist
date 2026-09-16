@@ -1,10 +1,51 @@
 "use client";
 
 import * as React from "react";
+import { useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bell, CheckCheck } from "lucide-react";
 import { notificationsApi } from "@/lib/api/services";
+import type { Notification } from "@/lib/api/types";
+import { useSession } from "@/lib/auth/session";
 import { classNames, timeAgo } from "@/lib/utils";
+
+/**
+ * Where a click on the notification should land.
+ * - USER_APPROVAL (new student/lecturer account): the review queue of the
+ *   viewer's role (admin overview, lecturer class overview).
+ * - APPROVAL with a pending status: the approval kanban.
+ * - APPROVAL with a terminal status: the public entity page when one exists,
+ *   otherwise the author's own data list.
+ */
+function targetFor(n: Notification, viewerRole?: string): string | null {
+  const data = n.data ?? {};
+  if (n.type === "USER_APPROVAL") {
+    if (data.role === "LECTURER") return "/studio/admin";
+    if (viewerRole === "SUPER_ADMIN") return "/studio/admin";
+    if (viewerRole === "LECTURER") return "/studio/lecturer";
+    return "/studio/admin";
+  }
+  if (n.type === "APPROVAL") {
+    const { entityType, entityId, status } = data;
+    if (status === "PENDING_LEADER" || status === "PENDING_LECTURER" || status === "PENDING_ADMIN") {
+      return "/studio/approvals";
+    }
+    if (entityType && entityId) {
+      if (status === "PUBLISHED") {
+        if (entityType === "DESTINATION") return `/destinations/${entityId}`;
+        if (entityType === "ROUTE") return `/routes/${entityId}`;
+        if (entityType === "TOUR") return `/tours/${entityId}`;
+      }
+      if (status === "REJECTED" || status === "DRAFT") return "/studio/mine";
+      if (entityType === "DESTINATION") return `/destinations/${entityId}`;
+      if (entityType === "ROUTE") return `/routes/${entityId}`;
+      if (entityType === "TOUR") return `/tours/${entityId}`;
+      return "/studio/approvals";
+    }
+    return "/studio/approvals";
+  }
+  return null;
+}
 
 interface NotificationsDropdownProps {
   buttonClassName: string;
@@ -26,6 +67,8 @@ export function NotificationsDropdown({
   wrapperClassName = "relative shrink-0",
 }: NotificationsDropdownProps) {
   const queryClient = useQueryClient();
+  const router = useRouter();
+  const { user } = useSession();
   const [open, setOpen] = React.useState(false);
   const boxRef = React.useRef<HTMLDivElement | null>(null);
 
@@ -67,14 +110,17 @@ export function NotificationsDropdown({
     }
   };
 
-  const openItem = async (id: string) => {
+  const openItem = async (n: Notification) => {
     try {
-      await notificationsApi.markRead(id);
+      await notificationsApi.markRead(n.id);
     } catch {
       /* already read or offline */
     } finally {
       void refresh();
     }
+    const target = targetFor(n, user?.role);
+    setOpen(false);
+    if (target) router.push(target);
   };
 
   return (
@@ -119,7 +165,7 @@ export function NotificationsDropdown({
                 <li key={n.id}>
                   <button
                     type="button"
-                    onClick={() => void openItem(n.id)}
+                    onClick={() => void openItem(n)}
                     className={classNames(
                       "flex w-full items-start gap-2.5 px-4 py-2.5 text-left transition hover:bg-slate-50",
                       !n.readAt && "bg-[#1d4ed8]/[0.03]",
