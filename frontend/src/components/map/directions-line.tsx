@@ -8,20 +8,24 @@ const SOURCE_ID = "vj-directions";
 const CASING_ID = "vj-directions-casing";
 const LINE_ID = "vj-directions-line";
 const ENDPOINTS_ID = "vj-directions-endpoints";
+const ALT_SOURCE_ID = "vj-directions-alt";
+const ALT_LINE_ID = "vj-directions-alt-line";
 
 export interface DirectionsGeometry {
   coordinates: [number, number][];
 }
 
 interface DirectionsLineProps {
-  /** Road polyline from the directions fetch (null = draw nothing). */
+  /** Selected road polyline from the directions fetch (null = draw nothing). */
   route: DirectionsGeometry | null;
+  /** Non-selected alternative routes, drawn grey underneath. */
+  alternatives?: DirectionsGeometry[];
   from: { lng: number; lat: number } | null;
   to: { lng: number; lat: number } | null;
 }
 
-/** In-app route: white casing + blue line plus green/red endpoint dots. */
-export function DirectionsLine({ route, from, to }: DirectionsLineProps) {
+/** In-app route: white casing + blue line, grey alternatives, green/red endpoint dots. */
+export function DirectionsLine({ route, alternatives = [], from, to }: DirectionsLineProps) {
   const map = useMap();
   // Key of the last route the camera fitted to. Guards fitBounds so it runs
   // once per actual route change — never once per render — otherwise every
@@ -69,6 +73,35 @@ export function DirectionsLine({ route, from, to }: DirectionsLineProps) {
             layout: { "line-join": "round", "line-cap": "round" },
             paint: { "line-color": "#1d4ed8", "line-width": 4.5, "line-opacity": 0.95 },
           });
+        }
+
+        const alt: GeoJSON.FeatureCollection = {
+          type: "FeatureCollection",
+          features: alternatives
+            .filter((a) => a.coordinates?.length)
+            .map((a) => ({
+              type: "Feature",
+              geometry: { type: "LineString", coordinates: a.coordinates },
+              properties: {},
+            })),
+        };
+        if (!map.getSource(ALT_SOURCE_ID)) {
+          map.addSource(ALT_SOURCE_ID, { type: "geojson", data: alt });
+        } else {
+          (map.getSource(ALT_SOURCE_ID) as mapboxgl.GeoJSONSource | undefined)?.setData(alt);
+        }
+        if (!map.getLayer(ALT_LINE_ID)) {
+          map.addLayer(
+            {
+              id: ALT_LINE_ID,
+              type: "line",
+              source: ALT_SOURCE_ID,
+              layout: { "line-join": "round", "line-cap": "round" },
+              paint: { "line-color": "#94a3b8", "line-width": 3.5, "line-opacity": 0.7 },
+            },
+            // Underneath the selected route so the highlight stays on top.
+            map.getLayer(LINE_ID) ? LINE_ID : undefined,
+          );
         }
 
         const points: GeoJSON.FeatureCollection = {
@@ -132,10 +165,10 @@ export function DirectionsLine({ route, from, to }: DirectionsLineProps) {
     return () => {
       cancelled = true;
       try {
-        for (const id of [ENDPOINTS_ID, LINE_ID, CASING_ID]) {
+        for (const id of [ENDPOINTS_ID, LINE_ID, CASING_ID, ALT_LINE_ID]) {
           if (map.getLayer(id)) map.removeLayer(id);
         }
-        for (const id of [SOURCE_ID, `${SOURCE_ID}-pts`]) {
+        for (const id of [SOURCE_ID, `${SOURCE_ID}-pts`, ALT_SOURCE_ID]) {
           if (map.getSource(id)) map.removeSource(id);
         }
       } catch {
@@ -160,6 +193,16 @@ export function DirectionsLine({ route, from, to }: DirectionsLineProps) {
               },
             ]
           : [],
+      });
+      (map.getSource(ALT_SOURCE_ID) as mapboxgl.GeoJSONSource | undefined)?.setData({
+        type: "FeatureCollection",
+        features: alternatives
+          .filter((a) => a.coordinates?.length)
+          .map((a) => ({
+            type: "Feature",
+            geometry: { type: "LineString", coordinates: a.coordinates },
+            properties: {},
+          })),
       });
       (map.getSource(`${SOURCE_ID}-pts`) as mapboxgl.GeoJSONSource | undefined)?.setData({
         type: "FeatureCollection",
@@ -200,7 +243,7 @@ export function DirectionsLine({ route, from, to }: DirectionsLineProps) {
     } catch {
       /* gone */
     }
-  }, [map, route, from, to]);
+  }, [map, route, alternatives, from, to]);
 
   return null;
 }

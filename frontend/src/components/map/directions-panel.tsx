@@ -20,26 +20,35 @@ export interface FetchedRoute {
   durationS: number | null;
 }
 
+interface RawRoute {
+  geometry?: { coordinates?: [number, number][] };
+  distance?: number;
+  duration?: number;
+}
+
+function toFetched(r: RawRoute): FetchedRoute | null {
+  if (!r?.geometry?.coordinates?.length) return null;
+  return {
+    coordinates: r.geometry.coordinates,
+    distanceM: Number(r.distance),
+    durationS: Number.isFinite(Number(r.duration)) ? Math.round(Number(r.duration)) : null,
+  };
+}
+
 /**
- * Road route between two points: backend directions first (server token),
+ * Road routes between two points: backend directions first (server token),
  * direct Mapbox call with the public token as fallback (e.g. signed-out).
- * Returns null when no road route exists.
+ * Returns all alternative routes (best first), or null when none exists.
  */
-export async function fetchRoute(from: DirPoint, to: DirPoint): Promise<FetchedRoute | null> {
+export async function fetchRoute(from: DirPoint, to: DirPoint): Promise<FetchedRoute[] | null> {
   const coords = [
     [from.lng, from.lat],
     [to.lng, to.lat],
   ];
   try {
     const body = await mapboxApi.directions(from, to);
-    const r = body.routes?.[0];
-    if (r?.geometry?.coordinates?.length) {
-      return {
-        coordinates: r.geometry.coordinates,
-        distanceM: Number(r.distance),
-        durationS: Number.isFinite(Number(r.duration)) ? Math.round(Number(r.duration)) : null,
-      };
-    }
+    const routes = (body.routes ?? []).map(toFetched).filter((r): r is FetchedRoute => r != null);
+    if (routes.length) return routes;
   } catch {
     /* fall through to direct call */
   }
@@ -48,21 +57,14 @@ export async function fetchRoute(from: DirPoint, to: DirPoint): Promise<FetchedR
     const res = await fetch(
       `https://api.mapbox.com/directions/v5/mapbox/driving/${coords
         .map(([lng, lat]) => `${lng},${lat}`)
-        .join(";")}?geometries=geojson&overview=full&access_token=${encodeURIComponent(
+        .join(";")}?geometries=geojson&overview=full&alternatives=true&access_token=${encodeURIComponent(
         NEXT_PUBLIC_MAPBOX_TOKEN,
       )}`,
     );
     if (!res.ok) return null;
-    const body = (await res.json()) as {
-      routes?: Array<{ geometry?: { coordinates?: [number, number][] }; distance?: number; duration?: number }>;
-    };
-    const r = body.routes?.[0];
-    if (!r?.geometry?.coordinates?.length) return null;
-    return {
-      coordinates: r.geometry.coordinates,
-      distanceM: Number(r.distance),
-      durationS: Number.isFinite(Number(r.duration)) ? Math.round(Number(r.duration)) : null,
-    };
+    const body = (await res.json()) as { routes?: RawRoute[] };
+    const routes = (body.routes ?? []).map(toFetched).filter((r): r is FetchedRoute => r != null);
+    return routes.length ? routes : null;
   } catch {
     return null;
   }
@@ -93,7 +95,11 @@ interface DirectionsPanelProps {
   candidates: Destination[];
   userPosition: { lng: number; lat: number } | null;
   loading: boolean;
-  route: FetchedRoute | null;
+  /** All alternative routes (best first). */
+  routes: FetchedRoute[];
+  /** Index of the selected route. */
+  choice: number;
+  onChoice: (index: number) => void;
   settled: boolean;
 }
 
@@ -112,9 +118,12 @@ export function DirectionsPanel({
   candidates,
   userPosition,
   loading,
-  route,
+  routes,
+  choice,
+  onChoice,
   settled,
 }: DirectionsPanelProps) {
+  const selected = routes[Math.min(choice, Math.max(routes.length - 1, 0))] ?? null;
   return (
     <div className="absolute left-3 top-[72px] z-20 w-[min(92vw,360px)] rounded-2xl bg-white/95 p-3 shadow-xl ring-1 ring-slate-900/10 backdrop-blur md:left-4">
       <div className="flex items-center gap-2">
@@ -169,13 +178,48 @@ export function DirectionsPanel({
             <Loader2 className="size-4 animate-spin" />
             Đang tìm đường…
           </p>
-        ) : route ? (
-          <p className="flex flex-wrap items-baseline gap-x-2">
-            <strong className="text-base font-black tabular-nums text-slate-900">
-              {formatDistance(route.distanceM)}
-            </strong>
-            <span className="font-semibold text-slate-500">{formatDuration(route.durationS)} lái xe</span>
-          </p>
+        ) : selected ? (
+          <div>
+            <p className="flex flex-wrap items-baseline gap-x-2">
+              <strong className="text-base font-black tabular-nums text-slate-900">
+                {formatDistance(selected.distanceM)}
+              </strong>
+              <span className="font-semibold text-slate-500">{formatDuration(selected.durationS)} lái xe</span>
+            </p>
+            {routes.length > 1 ? (
+              <ul className="mt-1.5 space-y-1">
+                {routes.map((r, i) => (
+                  <li key={i}>
+                    <button
+                      type="button"
+                      onClick={() => onChoice(i)}
+                      aria-pressed={i === Math.min(choice, routes.length - 1)}
+                      className={classNames(
+                        "flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[13px] transition",
+                        i === Math.min(choice, routes.length - 1)
+                          ? "bg-[#1d4ed8]/10 font-bold text-[#1d4ed8]"
+                          : "font-medium text-slate-600 hover:bg-slate-100",
+                      )}
+                    >
+                      <span
+                        className={classNames(
+                          "size-2 shrink-0 rounded-full",
+                          i === 0 ? "bg-emerald-500" : "bg-slate-300",
+                        )}
+                      />
+                      <span className="flex-1">
+                        {i === 0 ? "Tuyến tốt nhất" : `Tuyến thay thế ${i}`}
+                      </span>
+                      <span className="font-bold tabular-nums">{formatDistance(r.distanceM)}</span>
+                      <span className="text-xs tabular-nums text-slate-500">
+                        {formatDuration(r.durationS)}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
         ) : settled ? (
           <p className="font-semibold text-rose-600">Không tìm được đường đi cho 2 điểm này.</p>
         ) : (

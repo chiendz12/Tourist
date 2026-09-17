@@ -198,6 +198,9 @@ export class MapboxService {
         waypoints: coordinates.map((coords) => ({ coordinates: coords })),
         geometries: 'geojson',
         overview: 'full',
+        // Return alternative routes when they exist so the map can offer
+        // a choice; callers that only need one keep using routes[0].
+        alternatives: true,
       })
       .send()
       .then((res: MapboxResponse) => res.body);

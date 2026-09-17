@@ -273,10 +273,13 @@ export default function MapPage() {
     [userPosition],
   );
 
+  const [dirChoice, setDirChoice] = React.useState(0);
+
   const closeDirections = React.useCallback(() => {
     setDirOpen(false);
     setDirFrom(null);
     setDirTo(null);
+    setDirChoice(0);
   }, []);
 
   const routeQuery = useQuery({
@@ -291,16 +294,34 @@ export default function MapPage() {
     retry: 1,
   });
 
+  // All alternative routes (best first). The choice resets whenever the
+  // endpoints change so it never points past the new list.
+  const dirRoutes = React.useMemo(() => routeQuery.data ?? [], [routeQuery.data]);
+  React.useEffect(() => {
+    setDirChoice(0);
+  }, [
+    dirFrom ? `${dirFrom.lng.toFixed(5)},${dirFrom.lat.toFixed(5)}` : null,
+    dirTo ? `${dirTo.lng.toFixed(5)},${dirTo.lat.toFixed(5)}` : null,
+  ]);
+  const safeChoice = Math.min(dirChoice, Math.max(dirRoutes.length - 1, 0));
+
   // Stable identity: DirectionsLine refits the camera when this object
   // changes, so it must not be rebuilt inline on every render — otherwise
   // each render re-fires fitBounds and the map feels frozen while the
   // directions panel is open.
   const dirRoute = React.useMemo(
     () =>
-      routeQuery.data?.coordinates?.length
-        ? { coordinates: routeQuery.data.coordinates }
+      dirRoutes[safeChoice]?.coordinates?.length
+        ? { coordinates: dirRoutes[safeChoice].coordinates }
         : null,
-    [routeQuery.data],
+    [dirRoutes, safeChoice],
+  );
+  const dirAlternatives = React.useMemo(
+    () =>
+      dirRoutes
+        .filter((_, i) => i !== safeChoice && dirRoutes[i].coordinates?.length)
+        .map((r) => ({ coordinates: r.coordinates })),
+    [dirRoutes, safeChoice],
   );
 
   const toggleFav = useMutation({    mutationFn: async (destinationId: string) => {
@@ -511,6 +532,7 @@ export default function MapPage() {
         <SearchPin place={searchPin} onDirections={openDirections} onClose={() => setSearchPin(null)} />
         <DirectionsLine
           route={dirRoute}
+          alternatives={dirAlternatives}
           from={dirOpen ? dirFrom : null}
           to={dirOpen ? dirTo : null}
         />
@@ -615,7 +637,9 @@ export default function MapPage() {
           candidates={visible}
           userPosition={userPosition}
           loading={routeQuery.isFetching}
-          route={routeQuery.data ?? null}
+          routes={dirRoutes}
+          choice={safeChoice}
+          onChoice={setDirChoice}
           settled={routeQuery.isFetched && !routeQuery.isFetching}
         />
       ) : null}
