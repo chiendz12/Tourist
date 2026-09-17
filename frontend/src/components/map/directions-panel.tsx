@@ -18,12 +18,36 @@ export interface FetchedRoute {
   coordinates: [number, number][];
   distanceM: number;
   durationS: number | null;
+  /** Ordered road names the route passes through (deduped). */
+  roads: string[];
+}
+
+interface RawStep {
+  name?: string;
+}
+
+interface RawLeg {
+  steps?: RawStep[];
 }
 
 interface RawRoute {
   geometry?: { coordinates?: [number, number][] };
   distance?: number;
   duration?: number;
+  legs?: RawLeg[];
+}
+
+/** Ordered road names from legs/steps, consecutive duplicates removed. */
+function roadNames(r: RawRoute): string[] {
+  const out: string[] = [];
+  for (const leg of r.legs ?? []) {
+    for (const step of leg.steps ?? []) {
+      const name = step.name?.trim();
+      if (!name) continue;
+      if (out.length === 0 || out[out.length - 1] !== name) out.push(name);
+    }
+  }
+  return out;
 }
 
 function toFetched(r: RawRoute): FetchedRoute | null {
@@ -32,6 +56,7 @@ function toFetched(r: RawRoute): FetchedRoute | null {
     coordinates: r.geometry.coordinates,
     distanceM: Number(r.distance),
     durationS: Number.isFinite(Number(r.duration)) ? Math.round(Number(r.duration)) : null,
+    roads: roadNames(r),
   };
 }
 
@@ -57,7 +82,7 @@ export async function fetchRoute(from: DirPoint, to: DirPoint): Promise<FetchedR
     const res = await fetch(
       `https://api.mapbox.com/directions/v5/mapbox/driving/${coords
         .map(([lng, lat]) => `${lng},${lat}`)
-        .join(";")}?geometries=geojson&overview=full&alternatives=true&access_token=${encodeURIComponent(
+        .join(";")}?geometries=geojson&overview=full&alternatives=true&steps=true&access_token=${encodeURIComponent(
         NEXT_PUBLIC_MAPBOX_TOKEN,
       )}`,
     );
@@ -186,6 +211,12 @@ export function DirectionsPanel({
               </strong>
               <span className="font-semibold text-slate-500">{formatDuration(selected.durationS)} lái xe</span>
             </p>
+            {selected.roads.length ? (
+              <p className="mt-1 text-xs leading-relaxed text-slate-500">
+                <span className="font-bold text-slate-600">Đi qua: </span>
+                {selected.roads.join(" → ")}
+              </p>
+            ) : null}
             {routes.length > 1 ? (
               <ul className="mt-1.5 space-y-1">
                 {routes.map((r, i) => (

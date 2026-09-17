@@ -201,6 +201,9 @@ export class MapboxService {
         // Return alternative routes when they exist so the map can offer
         // a choice; callers that only need one keep using routes[0].
         alternatives: true,
+        // Include per-step road names so the map can list the streets
+        // each route passes through.
+        steps: true,
       })
       .send()
       .then((res: MapboxResponse) => res.body);
