@@ -48,7 +48,7 @@ export function SearchPin({ place, onDirections, onClose }: SearchPinProps) {
           (place.address && place.address !== place.name
             ? `<div style="font-size:12px;color:#64748b;margin-top:2px">${escapeHtml(place.address)}</div>`
             : "") +
-          `<div style="font-size:11px;color:#94a3b8;margin-top:3px">Nguồn: ${escapeHtml(sourceVi(place.source))} · ${place.lat.toFixed(5)}, ${place.lng.toFixed(5)}</div>` +
+          `<div style="font-size:11px;color:#94a3b8;margin-top:3px">${place.lat.toFixed(5)}, ${place.lng.toFixed(5)}</div>` +
           `<div style="display:flex;gap:6px;margin-top:8px">` +
           `<button data-act="directions" style="flex:1;font-size:12px;font-weight:700;color:#fff;background:#1d4ed8;border:0;border-radius:8px;padding:6px 4px;cursor:pointer">Chỉ đường</button>` +
           `<button data-act="clear" title="Xóa ghim" style="font-size:12px;font-weight:700;color:#64748b;background:#f1f5f9;border:0;border-radius:8px;padding:6px 8px;cursor:pointer">✕</button>` +
@@ -88,17 +88,6 @@ export function SearchPin({ place, onDirections, onClose }: SearchPinProps) {
   }, [map, place]);
 
   return null;
-}
-
-function sourceVi(source: PlaceResult["source"]): string {
-  switch (source) {
-    case "VietJourney":
-      return "VietJourney";
-    case "OpenStreetMap":
-      return "OpenStreetMap";
-    case "Mapbox":
-      return "Mapbox";
-  }
 }
 
 function escapeHtml(value: string) {
