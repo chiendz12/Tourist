@@ -23,6 +23,10 @@ interface DirectionsLineProps {
 /** In-app route: white casing + blue line plus green/red endpoint dots. */
 export function DirectionsLine({ route, from, to }: DirectionsLineProps) {
   const map = useMap();
+  // Key of the last route the camera fitted to. Guards fitBounds so it runs
+  // once per actual route change — never once per render — otherwise every
+  // re-render yanks the camera back and the map feels frozen.
+  const fittedKeyRef = React.useRef<string | null>(null);
 
   React.useEffect(() => {
     if (!map) return;
@@ -113,6 +117,9 @@ export function DirectionsLine({ route, from, to }: DirectionsLineProps) {
           const bounds = new mapboxgl.LngLatBounds();
           for (const [lng, lat] of route.coordinates) bounds.extend([lng, lat]);
           map.fitBounds(bounds, { padding: 70, duration: 800 });
+          const first = route.coordinates[0];
+          const last = route.coordinates[route.coordinates.length - 1];
+          fittedKeyRef.current = `${route.coordinates.length}|${first[0]},${first[1]}|${last[0]},${last[1]}`;
         }
       } catch {
         /* style gone */
@@ -178,9 +185,17 @@ export function DirectionsLine({ route, from, to }: DirectionsLineProps) {
         ],
       });
       if (route?.coordinates?.length) {
-        const bounds = new mapboxgl.LngLatBounds();
-        for (const [lng, lat] of route.coordinates) bounds.extend([lng, lat]);
-        map.fitBounds(bounds, { padding: 70, duration: 800 });
+        const first = route.coordinates[0];
+        const last = route.coordinates[route.coordinates.length - 1];
+        const key = `${route.coordinates.length}|${first[0]},${first[1]}|${last[0]},${last[1]}`;
+        if (key !== fittedKeyRef.current) {
+          fittedKeyRef.current = key;
+          const bounds = new mapboxgl.LngLatBounds();
+          for (const [lng, lat] of route.coordinates) bounds.extend([lng, lat]);
+          map.fitBounds(bounds, { padding: 70, duration: 800 });
+        }
+      } else {
+        fittedKeyRef.current = null;
       }
     } catch {
       /* gone */

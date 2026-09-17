@@ -291,6 +291,18 @@ export default function MapPage() {
     retry: 1,
   });
 
+  // Stable identity: DirectionsLine refits the camera when this object
+  // changes, so it must not be rebuilt inline on every render — otherwise
+  // each render re-fires fitBounds and the map feels frozen while the
+  // directions panel is open.
+  const dirRoute = React.useMemo(
+    () =>
+      routeQuery.data?.coordinates?.length
+        ? { coordinates: routeQuery.data.coordinates }
+        : null,
+    [routeQuery.data],
+  );
+
   const toggleFav = useMutation({    mutationFn: async (destinationId: string) => {
       const ids = new Set((favorites.data ?? []).map((f) => f.destinationId));
       if (ids.has(destinationId)) await favoritesApi.remove(destinationId);
@@ -498,11 +510,7 @@ export default function MapPage() {
         <ClickMarker onDirections={openDirections} />
         <SearchPin place={searchPin} onDirections={openDirections} onClose={() => setSearchPin(null)} />
         <DirectionsLine
-          route={
-            routeQuery.data?.coordinates?.length
-              ? { coordinates: routeQuery.data.coordinates }
-              : null
-          }
+          route={dirRoute}
           from={dirOpen ? dirFrom : null}
           to={dirOpen ? dirTo : null}
         />
